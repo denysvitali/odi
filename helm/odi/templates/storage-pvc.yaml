@@ -1,0 +1,18 @@
+{{- if and (eq .Values.backend.storage.type "fs") .Values.backend.storage.fs.pvc.enabled (not .Values.backend.storage.fs.pvc.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "odi.fullname" . }}-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "odi.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.backend.storage.fs.pvc.accessMode }}
+  {{- if .Values.backend.storage.fs.pvc.storageClass }}
+  storageClassName: {{ .Values.backend.storage.fs.pvc.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.storage.fs.pvc.size }}
+{{- end }}

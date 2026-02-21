@@ -1,0 +1,15 @@
+apiVersion: v2
+name: odi
+description: ODI — privacy-focused document digitisation system
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: opensearch
+    version: ">=2.0.0"
+    repository: "https://opensearch-project.github.io/helm-charts/"
+    condition: opensearch.enabled
+  - name: cloudnative-pg
+    version: ">=0.20.0"
+    repository: "https://cloudnative-pg.github.io/charts"
+    condition: postgresql.enabled

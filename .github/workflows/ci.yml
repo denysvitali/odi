@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache OpenCV
+        id: opencv-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/gocv
+          key: opencv-${{ env.GOCV_VERSION }}-${{ runner.os }}
+        env:
+          GOCV_VERSION: 4.10.0
+
+      - name: Install OpenCV
+        if: steps.opencv-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/hybridgroup/gocv.git /tmp/gocv
+          cd /tmp/gocv && make install
+        env:
+          GOCV_VERSION: 4.10.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: backend/go.sum
+
+      - name: Build
+        working-directory: backend
+        run: go build ./...
+
+      - name: Test
+        working-directory: backend
+        run: go test ./...
+
+  build-zefix-tools:
+    name: Zefix Tools (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: zefix-tools/go.sum
+
+      - name: Build
+        working-directory: zefix-tools
+        run: go build ./...
+
+  build-frontend:
+    name: Frontend (Node/pnpm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: frontend
+        run: pnpm run build
+
+      - name: Test
+        working-directory: frontend
+        run: pnpm test

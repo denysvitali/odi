@@ -1,0 +1,10 @@
+.env
+
+# Claude Code session data
+.claude/
+
+# Helm dependency tarballs (fetched via `helm dependency update`)
+helm/*/charts/
+
+# Private test data
+logo-recognition/

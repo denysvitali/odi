@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "odi.backend.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "odi.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "odi.backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "odi.backend.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- include "odi.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.service.port }}
+              protocol: TCP
+          env:
+            - name: OPENSEARCH_ADDR
+              value: {{ include "odi.opensearchAddr" . | quote }}
+            - name: OPENSEARCH_USERNAME
+              value: {{ include "odi.opensearchUsername" . | quote }}
+            - name: OPENSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: opensearch-password
+            - name: OPENSEARCH_INDEX
+              value: {{ .Values.backend.opensearch.index | quote }}
+            - name: OPENSEARCH_SKIP_TLS
+              value: {{ .Values.backend.opensearch.skipTLS | toString | quote }}
+            - name: ZEFIX_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: zefix-dsn
+            - name: OCR_API_ADDR
+              value: {{ required "backend.ocrService.addr is required" .Values.backend.ocrService.addr | quote }}
+            - name: STORAGE_TYPE
+              value: {{ .Values.backend.storage.type | quote }}
+            {{- if eq .Values.backend.storage.type "b2" }}
+            - name: B2_ACCOUNT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: b2-account
+            - name: B2_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: b2-key
+            - name: B2_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: b2-bucket-name
+            - name: B2_PASSPHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odi.secretName" . }}
+                  key: b2-passphrase
+            {{- else if eq .Values.backend.storage.type "fs" }}
+            - name: FS_PATH
+              value: {{ .Values.backend.storage.fs.path | quote }}
+            {{- end }}
+            {{- if .Values.backend.cors.allowedOrigins }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.backend.cors.allowedOrigins | quote }}
+            {{- end }}
+            {{- if .Values.backend.ocrService.caPath }}
+            - name: OCR_CA_PATH
+              value: {{ .Values.backend.ocrService.caPath | quote }}
+            {{- end }}
+            {{- with .Values.backend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- with .Values.backend.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $mounts := list }}
+          {{- if eq .Values.backend.storage.type "fs" }}
+            {{- $mounts = append $mounts (dict "name" "storage" "mountPath" .Values.backend.storage.fs.path) }}
+          {{- end }}
+          {{- with .Values.backend.extraVolumeMounts }}
+            {{- $mounts = concat $mounts . }}
+          {{- end }}
+          {{- if $mounts }}
+          volumeMounts:
+            {{- toYaml $mounts | nindent 12 }}
+          {{- end }}
+      {{- $volumes := list }}
+      {{- if eq .Values.backend.storage.type "fs" }}
+        {{- $claimName := ternary .Values.backend.storage.fs.pvc.existingClaim (printf "%s-storage" (include "odi.fullname" .)) (ne .Values.backend.storage.fs.pvc.existingClaim "") }}
+        {{- $volumes = append $volumes (dict "name" "storage" "persistentVolumeClaim" (dict "claimName" $claimName)) }}
+      {{- end }}
+      {{- with .Values.backend.extraVolumes }}
+        {{- $volumes = concat $volumes . }}
+      {{- end }}
+      {{- if $volumes }}
+      volumes:
+        {{- toYaml $volumes | nindent 8 }}
+      {{- end }}

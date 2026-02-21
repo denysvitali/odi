@@ -1,0 +1,138 @@
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Backend
+# ---------------------------------------------------------------------------
+backend:
+  image:
+    repository: ghcr.io/your-org/odi-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 8085
+
+  resources: {}
+
+  opensearch:
+    index: documents
+    # Skip TLS verification when connecting to OpenSearch.
+    # Set to false in production with a valid certificate.
+    skipTLS: true
+
+  storage:
+    # "b2" or "fs"
+    type: b2
+
+    b2:
+      account: ""
+      key: ""
+      bucketName: ""
+      passphrase: ""
+
+    fs:
+      path: /data/storage
+      pvc:
+        enabled: true
+        storageClass: ""
+        accessMode: ReadWriteOnce
+        size: 10Gi
+        # Provide an existing PVC name to skip creating a new one.
+        existingClaim: ""
+
+  ocrService:
+    # Required: address of the remote OCR service, e.g. "http://ocr-service:8080"
+    addr: ""
+    # Optional: path inside the container to a CA certificate for the OCR service.
+    caPath: ""
+
+  cors:
+    allowedOrigins: ""
+
+  # Extra environment variables injected into the backend container verbatim.
+  extraEnv: []
+  # - name: MY_VAR
+  #   value: "my-value"
+
+  # Extra volumes and mounts for the backend pod.
+  extraVolumes: []
+  extraVolumeMounts: []
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+frontend:
+  enabled: true
+
+  image:
+    repository: ghcr.io/your-org/odi-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  resources: {}
+
+# ---------------------------------------------------------------------------
+# Gateway API HTTPRoute (disabled by default)
+# ---------------------------------------------------------------------------
+gateway:
+  enabled: false
+  parentRefs:
+    - name: my-gateway
+      namespace: ""
+  # Optional list of hostnames the HTTPRoute should match.
+  hostnames: []
+  tls:
+    enabled: false
+    secretName: ""
+
+# ---------------------------------------------------------------------------
+# OpenSearch (bundled subchart)
+# ---------------------------------------------------------------------------
+opensearch:
+  enabled: true
+  singleNode: true
+  extraEnvs:
+    - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+      # Must satisfy OpenSearch password policy (uppercase, lowercase, digit, special char).
+      value: "Ch@ngeMe123!"
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources: {}
+
+# Use this block when opensearch.enabled=false to point at an existing cluster.
+externalOpensearch:
+  addr: ""
+  username: ""
+  password: ""
+
+# ---------------------------------------------------------------------------
+# PostgreSQL via CloudNativePG (bundled subchart installs operator only)
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    username: zefix
+    password: "changeme"
+    database: zefix
+  cluster:
+    instances: 1
+    storage:
+      size: 5Gi
+      storageClass: ""
+
+# Use this DSN when postgresql.enabled=false.
+externalZefix:
+  # e.g. "postgresql://user:pass@host:5432/zefix?sslmode=disable"
+  dsn: ""

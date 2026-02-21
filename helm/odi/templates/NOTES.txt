@@ -1,0 +1,40 @@
+ODI has been deployed!
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+Backend service:
+  {{ include "odi.backend.name" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.backend.service.port }}
+
+{{- if .Values.frontend.enabled }}
+
+Frontend service:
+  {{ include "odi.frontend.name" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.frontend.service.port }}
+{{- end }}
+
+{{- if .Values.gateway.enabled }}
+
+HTTPRoute is enabled. Traffic will be routed to backend (/api) and frontend (/) via the configured Gateway.
+{{- else }}
+
+To expose ODI externally, enable the Gateway API HTTPRoute:
+  --set gateway.enabled=true --set gateway.parentRefs[0].name=<your-gateway>
+
+Or configure an Ingress manually pointing at the backend and frontend services.
+{{- end }}
+
+{{- if .Values.opensearch.enabled }}
+
+OpenSearch: {{ include "odi.opensearchAddr" . }}
+  Change the default password from values.yaml before going to production!
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+PostgreSQL (CloudNativePG):
+  Cluster: {{ include "odi.postgres.clusterName" . }}
+  Read-write endpoint: {{ include "odi.postgres.rwService" . }}:5432
+{{- end }}
+
+Required value reminder:
+  backend.ocrService.addr must be set to the address of the OCR service.

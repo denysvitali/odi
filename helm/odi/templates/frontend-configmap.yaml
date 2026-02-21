@@ -1,0 +1,29 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "odi.frontend.name" . }}-nginx
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "odi.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Serve static assets directly.
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            try_files $uri =404;
+        }
+
+        # Vue history-mode routing — fall back to index.html for all other paths.
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+{{- end }}

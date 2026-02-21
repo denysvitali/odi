@@ -1,0 +1,24 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "odi.postgres.clusterName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "odi.labels" . | nindent 4 }}
+spec:
+  instances: {{ .Values.postgresql.cluster.instances }}
+
+  bootstrap:
+    initdb:
+      database: {{ .Values.postgresql.auth.database | quote }}
+      owner: {{ .Values.postgresql.auth.username | quote }}
+      secret:
+        name: {{ include "odi.postgres.secretName" . }}
+
+  storage:
+    size: {{ .Values.postgresql.cluster.storage.size }}
+    {{- if .Values.postgresql.cluster.storage.storageClass }}
+    storageClass: {{ .Values.postgresql.cluster.storage.storageClass | quote }}
+    {{- end }}
+{{- end }}
