@@ -1,15 +1,15 @@
 module github.com/denysvitali/zefix-tools
 
-go 1.21
+go 1.26.2
 
-toolchain go1.21.6
+toolchain go1.26.2
 
 require (
-	github.com/alexflint/go-arg v1.4.3
+	github.com/alexflint/go-arg v1.6.1
 	github.com/denysvitali/sparql-client v0.0.0-20240111232713-5d0abd46fd48
-	github.com/sirupsen/logrus v1.9.3
-	gorm.io/driver/postgres v1.5.9
-	gorm.io/gorm v1.25.12
+	github.com/sirupsen/logrus v1.9.4
+	gorm.io/driver/postgres v1.6.0
+	gorm.io/gorm v1.31.1
 )
 
 require (
