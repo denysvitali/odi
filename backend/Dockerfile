@@ -1,7 +1,7 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.23
 
 # Build stage — uses gocv's official image which ships OpenCV 4.10 + build toolchain.
-FROM gocv/opencv:4.10.0 AS builder
+FROM gocv/opencv:4.13.0 AS builder
 
 ENV CGO_ENABLED=1 \
     GOFLAGS="-buildvcs=false"
@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags="-s -w" -o /out/odi-backend .
 
 # Runtime stage — keep the same OpenCV base so shared libs match exactly.
-FROM gocv/opencv:4.10.0 AS runtime
+FROM gocv/opencv:4.13.0 AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tzdata \

@@ -1,31 +1,31 @@
 module github.com/denysvitali/odi-backend
 
-go 1.21.0
+go 1.26.2
 
-toolchain go1.23.2
+toolchain go1.26.2
 
 require (
-	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/denysvitali/go-datesfinder v0.0.1
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
 	github.com/denysvitali/zefix-tools v0.0.0-20241020095735-116e6c7f5fd7
-	github.com/gin-contrib/cors v1.7.2
-	github.com/gin-gonic/gin v1.10.0
+	github.com/gin-contrib/cors v1.7.7
+	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/h2non/gock v1.2.0
 	github.com/joho/godotenv v1.5.1
 	github.com/keybase/dbus v0.0.0-20220506165403-5aa21ea2c23a
 	github.com/keybase/go-keychain v0.0.0-20231219164618-57a3676c3af6
 	github.com/opensearch-project/opensearch-go/v2 v2.3.0
-	github.com/pdfcpu/pdfcpu v0.6.0
-	github.com/rclone/rclone v1.68.1
-	github.com/sirupsen/logrus v1.9.3
-	github.com/spf13/cobra v1.8.1
-	github.com/spf13/viper v1.19.0
+	github.com/pdfcpu/pdfcpu v0.11.1
+	github.com/rclone/rclone v1.73.4
+	github.com/sirupsen/logrus v1.9.4
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/viper v1.21.0
 	github.com/stapelberg/airscan v0.0.0-20230413182642-6d2d07701710
-	github.com/stretchr/testify v1.9.0
-	gocv.io/x/gocv v0.35.0
-	golang.org/x/crypto v0.28.0
+	github.com/stretchr/testify v1.11.1
+	gocv.io/x/gocv v0.43.0
+	golang.org/x/crypto v0.50.0
 )
 
 require (
