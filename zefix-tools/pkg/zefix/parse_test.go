@@ -9,7 +9,11 @@ import (
 )
 
 func TestParse(t *testing.T) {
-	f, err := os.Open("../../zefix.json")
+	const fixture = "../../zefix.json"
+	f, err := os.Open(fixture)
+	if os.IsNotExist(err) {
+		t.Skipf("fixture %s not present; skipping", fixture)
+	}
 	if err != nil {
 		t.Fatalf("unable to open file: %v", err)
 	}

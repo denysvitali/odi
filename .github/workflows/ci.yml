@@ -8,11 +8,8 @@ on:
     branches: [main]
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_OWNER: denysvitali
   GO_VERSION: "1.26"
   NODE_VERSION: "20"
-  GOCV_VERSION: "4.10.0"
   GOLANGCI_LINT_VERSION: "latest"
 
 concurrency:
@@ -20,30 +17,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Backend (Go + OpenCV) ────────────────────────────────────────────────────
+  # ── Backend (Go + OpenCV via container; no local install) ───────────────────
   backend:
     name: Backend — lint, test, build
     runs-on: ubuntu-latest
+    container:
+      image: gocv/opencv:4.10.0
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache OpenCV build
-        id: opencv-cache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/gocv
-          key: opencv-${{ env.GOCV_VERSION }}-${{ runner.os }}
-
-      - name: Install OpenCV
-        if: steps.opencv-cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch release https://github.com/hybridgroup/gocv.git /tmp/gocv
-          cd /tmp/gocv && make install
-
-      - name: Reinstall OpenCV from cache
-        if: steps.opencv-cache.outputs.cache-hit == 'true'
-        run: |
-          cd /tmp/gocv && sudo make sudo_pre_install_clean && sudo make install
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -138,6 +119,11 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.3
+      - name: Add Helm repos
+        run: |
+          helm repo add opensearch https://opensearch-project.github.io/helm-charts/
+          helm repo add cloudnative-pg https://cloudnative-pg.github.io/charts
+          helm repo update
       - name: Helm dependency build
         working-directory: helm/odi
         run: helm dependency build

@@ -5,7 +5,7 @@ ARG BINARY=zefix-import
 FROM golang:1.26-alpine AS builder
 ARG BINARY
 ENV CGO_ENABLED=0 \
-    GOFLAGS="-buildvcs=false"
+    GOFLAGS="-buildvcs=false -mod=mod"
 
 WORKDIR /src
 
