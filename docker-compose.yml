@@ -1,6 +1,6 @@
 services:
   opensearch:
-    image: opensearchproject/opensearch:2.19.5
+    image: opensearchproject/opensearch:3.6.0
     container_name: opensearch
     environment:
       - cluster.name=opensearch-cluster
@@ -27,7 +27,7 @@ services:
       retries: 5
 
   opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2.19.5
+    image: opensearchproject/opensearch-dashboards:3.6.0
     container_name: opensearch-dashboards
     ports:
       - "5601:5601"
@@ -40,7 +40,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:18-alpine
     container_name: odi-postgres
     environment:
       POSTGRES_USER: postgres
