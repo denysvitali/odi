@@ -82,7 +82,6 @@ Published container images (on every push to `main` and on tags):
 | Go 1.26+ | `backend` and `zefix-tools` (workspace pins 1.26.0) |
 | pnpm | Frontend build |
 | Docker + Compose | OpenSearch, OpenSearch Dashboards, PostgreSQL |
-| OpenCV 4.x | Image processing in backend (`gocv`). CI uses the `gocv/opencv:4.10.0` container; locally on Linux: `git clone https://github.com/hybridgroup/gocv && cd gocv && make install` |
 | [ocr-server](https://github.com/denysvitali/ocr-server) | Android ML Kit OCR endpoint reachable from the backend |
 | AirScan / eSCL scanner | Live scanning (optional — you can also index from a directory) |
 

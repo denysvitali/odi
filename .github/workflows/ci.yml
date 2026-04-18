@@ -17,19 +17,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Backend (Go + OpenCV via container; no local install) ───────────────────
+  # ── Backend (Go) ────────────────────────────────────────────────────────────
   backend:
     name: Backend — lint, test, build
     runs-on: ubuntu-latest
-    container:
-      image: gocv/opencv:4.13.0
-    env:
-      GOFLAGS: -buildvcs=false
     steps:
       - uses: actions/checkout@v4
-
-      - name: Trust workspace
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Set up Go
         uses: actions/setup-go@v5

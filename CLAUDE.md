@@ -45,10 +45,9 @@ pnpm test -- path/to/file.spec.ts              # Single test
 
 ## Prerequisites
 
-- Go 1.23+ (workspace pins 1.23.1)
+- Go 1.26+ (workspace pins 1.26.0)
 - pnpm for the frontend
 - Docker + Compose
-- OpenCV — required by `gocv` in the backend for image processing. On Linux: `git clone https://github.com/hybridgroup/gocv && cd gocv && make install`.
 - A reachable [ocr-server](https://github.com/denysvitali/ocr-server) (Android/ML Kit) for OCR
 - Optional: an AirScan/eSCL scanner for live ingestion
 
