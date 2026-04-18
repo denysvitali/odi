@@ -1,0 +1,59 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Zurich",
+  "schedule": ["before 6am on monday"],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "branchConcurrentLimit": 0,
+  "rangeStrategy": "bump",
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Group all backend updates into one PR",
+      "matchFileNames": ["backend/**"],
+      "groupName": "backend dependencies",
+      "groupSlug": "backend"
+    },
+    {
+      "description": "Group all frontend updates (including its Dockerfile / compose) into one PR",
+      "matchFileNames": ["frontend/**"],
+      "groupName": "frontend dependencies",
+      "groupSlug": "frontend"
+    },
+    {
+      "description": "Group all zefix-tools updates into one PR",
+      "matchFileNames": ["zefix-tools/**"],
+      "groupName": "zefix-tools dependencies",
+      "groupSlug": "zefix-tools"
+    },
+    {
+      "description": "Group Helm chart dependency updates into one PR",
+      "matchFileNames": ["helm/**"],
+      "groupName": "helm chart dependencies",
+      "groupSlug": "helm"
+    },
+    {
+      "description": "Group all GitHub Actions updates (.github/workflows) into one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "groupSlug": "github-actions"
+    },
+    {
+      "description": "Group root docker-compose.yml updates separately",
+      "matchFileNames": ["docker-compose.yml"],
+      "groupName": "root docker-compose",
+      "groupSlug": "docker-compose-root"
+    }
+  ]
+}
