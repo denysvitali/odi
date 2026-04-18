@@ -7,16 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 type Client struct {
 	http     *http.Client
 	endpoint *url.URL
 }
-
-var log = logrus.StandardLogger().WithField("package", "ocr_client")
 
 func (c *Client) Process(f io.Reader) (*OcrResult, error) {
 	ocrUrl, err := c.endpoint.Parse("/api/v1/ocr")

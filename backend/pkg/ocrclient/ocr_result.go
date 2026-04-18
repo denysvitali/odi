@@ -55,14 +55,11 @@ func (s SortText) Less(i, j int) bool {
 	bbJ := s[j].BoundingBox
 	if bbI.Top < bbJ.Top {
 		return true
-	} else if bbI.Top == bbJ.Top {
-		if bbI.Left <= bbJ.Left {
-			return true
-		}
-		return false
-	} else {
-		return false
 	}
+	if bbI.Top == bbJ.Top {
+		return bbI.Left <= bbJ.Left
+	}
+	return false
 }
 
 func (s SortText) Swap(i, j int) {
