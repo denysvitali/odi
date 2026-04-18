@@ -5,7 +5,7 @@ go 1.21.0
 toolchain go1.23.2
 
 require (
-	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/charmbracelet/lipgloss/v2 v2.0.3
 	github.com/denysvitali/go-datesfinder v0.0.1
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
 	github.com/denysvitali/zefix-tools v0.0.0-20241020095735-116e6c7f5fd7
@@ -16,7 +16,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/keybase/dbus v0.0.0-20220506165403-5aa21ea2c23a
 	github.com/keybase/go-keychain v0.0.0-20231219164618-57a3676c3af6
-	github.com/opensearch-project/opensearch-go/v2 v2.3.0
+	github.com/opensearch-project/opensearch-go/v4 v4.6.0
 	github.com/pdfcpu/pdfcpu v0.6.0
 	github.com/rclone/rclone v1.68.1
 	github.com/sirupsen/logrus v1.9.3
