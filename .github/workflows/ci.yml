@@ -22,7 +22,7 @@ jobs:
     name: Backend — lint, test, build
     runs-on: ubuntu-latest
     container:
-      image: gocv/opencv:4.10.0
+      image: gocv/opencv:4.13.0
     env:
       GOFLAGS: -buildvcs=false
     steps:
