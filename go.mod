@@ -5,7 +5,7 @@ go 1.21.0
 toolchain go1.23.2
 
 require (
-	github.com/alexflint/go-arg v1.4.3
+	github.com/alexflint/go-arg v1.6.1
 	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/denysvitali/go-datesfinder v0.0.1
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
@@ -32,7 +32,7 @@ require (
 
 require (
 	github.com/abbot/go-http-auth v0.4.0 // indirect
-	github.com/alexflint/go-scalar v1.1.0 // indirect
+	github.com/alexflint/go-scalar v1.2.0 // indirect
 	github.com/almerlucke/go-iban v0.0.0-20220324081643-09bcab81b879 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
