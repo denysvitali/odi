@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/opensearch-project/opensearch-go/v2"
+	"github.com/opensearch-project/opensearch-go/v4"
 
 	"github.com/denysvitali/odi/pkg/zefix"
 )

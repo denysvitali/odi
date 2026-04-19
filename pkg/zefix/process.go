@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/opensearch-project/opensearch-go/v2"
-	"github.com/opensearch-project/opensearch-go/v2/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v4"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"github.com/sirupsen/logrus"
 
 	"github.com/denysvitali/go-datesfinder"

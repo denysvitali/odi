@@ -1,8 +1,6 @@
 module github.com/denysvitali/odi
 
-go 1.21.0
-
-toolchain go1.23.2
+go 1.24
 
 require (
 	github.com/alexflint/go-arg v1.4.3
@@ -17,14 +15,14 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/keybase/dbus v0.0.0-20220506165403-5aa21ea2c23a
 	github.com/keybase/go-keychain v0.0.0-20231219164618-57a3676c3af6
-	github.com/opensearch-project/opensearch-go/v2 v2.3.0
+	github.com/opensearch-project/opensearch-go/v4 v4.6.0
 	github.com/pdfcpu/pdfcpu v0.6.0
 	github.com/rclone/rclone v1.68.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stapelberg/airscan v0.0.0-20230413182642-6d2d07701710
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.28.0
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.25.12
