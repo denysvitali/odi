@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"sync"
 
@@ -57,14 +58,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 
 	for i, fh := range files {
 		wg.Add(1)
-		go func(idx int, filename string) {
+		go func(idx int, fileHeader *multipart.FileHeader) {
 			defer wg.Done()
 
 			result := uploadPageResult{
 				SequenceID: idx + 1,
 			}
 
-			f, err := fh.Open()
+			f, err := fileHeader.Open()
 			if err != nil {
 				result.Status = "failed"
 				result.Error = err.Error()
@@ -102,7 +103,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 				return
 			}
 
-			reader.Seek(0, io.SeekStart)
+			if _, err := reader.Seek(0, io.SeekStart); err != nil {
+				result.Status = "failed"
+				result.Error = "seek: " + err.Error()
+				mu.Lock()
+				results[idx] = result
+				mu.Unlock()
+				return
+			}
 			page.Reader = reader
 
 			if err := s.indexer.Index(c.Request.Context(), page); err != nil {
@@ -118,7 +126,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			mu.Lock()
 			results[idx] = result
 			mu.Unlock()
-		}(i, fh.Filename)
+		}(i, fh)
 	}
 
 	wg.Wait()
