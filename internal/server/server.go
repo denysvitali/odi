@@ -22,13 +22,14 @@ import (
 	"github.com/opensearch-project/opensearch-go/v2/opensearchapi"
 	"github.com/sirupsen/logrus"
 
+	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
 
 const (
 	serverReadTimeout  = 30 * time.Second
-	serverWriteTimeout = 30 * time.Second
+	serverWriteTimeout = 5 * time.Minute
 )
 
 type Server struct {
@@ -39,12 +40,21 @@ type Server struct {
 	osIndex              string
 	osInsecureSkipVerify bool
 	osClient             *opensearch.Client
-	storage              model.Retriever
+	storage              model.RWStorage
+	indexer              *indexer.Indexer
 }
 
 var log = logrus.StandardLogger().WithField("package", "server")
 
-func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVerify bool, osIndex string, ret model.Retriever) (*Server, error) {
+type ServerOption func(*Server)
+
+func WithIndexer(idx *indexer.Indexer) ServerOption {
+	return func(s *Server) {
+		s.indexer = idx
+	}
+}
+
+func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVerify bool, osIndex string, storage model.RWStorage, opts ...ServerOption) (*Server, error) {
 	u, err := url.Parse(osAddr)
 	if err != nil {
 		return nil, err
@@ -57,7 +67,11 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 		osPassword:           osPassword,
 		osInsecureSkipVerify: osInsecureSkipVerify,
 		osIndex:              osIndex,
-		storage:              ret,
+		storage:              storage,
+	}
+
+	for _, opt := range opts {
+		opt(&s)
 	}
 
 	var transport http.RoundTripper
@@ -134,6 +148,7 @@ func (s *Server) initRoutes() {
 	g.GET("/documents", s.handleGetDocuments)
 	g.GET("/files/:scanID/:sequenceId", s.handleGetFile)
 	g.GET("/thumbnails/:id", s.handleGetThumbnail)
+	g.POST("/upload", s.handleUpload)
 }
 
 type SearchRequest struct {

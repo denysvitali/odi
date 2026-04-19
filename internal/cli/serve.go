@@ -9,6 +9,7 @@ import (
 
 	"github.com/denysvitali/odi/internal/server"
 	"github.com/denysvitali/odi/internal/ui"
+	"github.com/denysvitali/odi/pkg/indexer"
 )
 
 const (
@@ -18,13 +19,14 @@ const (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the REST API server",
-	Long: `Start the ODI REST API server for searching and retrieving documents.
+	Long: `Start the ODI REST API server for searching, retrieving, and uploading documents.
 
 The server provides the following endpoints:
   - POST /api/v1/search      - Search documents
   - GET  /api/v1/documents   - List documents
   - GET  /api/v1/documents/:id - Get document by ID
-  - GET  /api/v1/files/:scanID/:sequenceId - Get document file`,
+  - GET  /api/v1/files/:scanID/:sequenceId - Get document file
+  - POST /api/v1/upload      - Upload and index JPG files`,
 	RunE: runServe,
 }
 
@@ -34,7 +36,8 @@ func init() {
 
 	AddOpenSearchFlags(serveCmd)
 	AddStorageFlags(serveCmd)
-
+	AddOCRFlags(serveCmd)
+	AddZefixFlags(serveCmd)
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -57,6 +60,36 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	var serverOpts []server.ServerOption
+
+	ocrAddr := GetString(cmd, FlagOcrAPIAddr)
+	zefixDsn := GetString(cmd, FlagZefixDsn)
+	if ocrAddr != "" && zefixDsn != "" {
+		opts := []indexer.Option{
+			indexer.WithOpenSearchUsername(GetString(cmd, FlagOsUsername)),
+			indexer.WithOpenSearchPassword(GetString(cmd, FlagOsPassword)),
+			indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)),
+		}
+		if GetBool(cmd, FlagOsSkipTLS) {
+			opts = append(opts, indexer.WithOpenSearchSkipTLS())
+		}
+
+		idx, err := indexer.New(
+			GetString(cmd, FlagOsAddr),
+			ocrAddr,
+			zefixDsn,
+			opts...,
+		)
+		if err != nil {
+			ui.PrintWarningf("Failed to initialize indexer (upload will be unavailable): %v", err)
+		} else {
+			serverOpts = append(serverOpts, server.WithIndexer(idx))
+			ui.PrintSuccess("Indexer initialized — upload endpoint enabled")
+		}
+	} else {
+		ui.PrintWarning("OCR API address or Zefix DSN not set — upload endpoint will be unavailable")
+	}
+
 	listenAddr := GetString(cmd, FlagListenAddr)
 
 	s, err := server.New(
@@ -66,6 +99,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		GetBool(cmd, FlagOsSkipTLS),
 		GetString(cmd, FlagOsIndex),
 		storage,
+		serverOpts...,
 	)
 	if err != nil {
 		ui.PrintErrorf("Failed to create server: %v", err)
