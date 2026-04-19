@@ -39,9 +39,10 @@ func (fs *Fs) Retrieve(ctx context.Context, scanID string, sequenceNumber int) (
 	if err := validateScanID(scanID); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(path.Join(fs.dir, scanID, fmt.Sprintf("%d.jpg", sequenceNumber)))
+	p := path.Join(fs.dir, scanID, fmt.Sprintf("%d.jpg", sequenceNumber))
+	f, err := os.Open(p)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open file %s: %w", p, err)
 	}
 	return &models.ScannedPage{
 		ScanID:     scanID,
@@ -54,25 +55,27 @@ func (fs *Fs) Store(ctx context.Context, page models.ScannedPage) error {
 	if err := validateScanID(page.ScanID); err != nil {
 		return err
 	}
+	dir := path.Join(fs.dir, page.ScanID)
 	// Check if directory exists
-	_, err := os.Stat(path.Join(fs.dir, page.ScanID))
+	_, err := os.Stat(dir)
 	if os.IsNotExist(err) {
-		err = os.MkdirAll(path.Join(fs.dir, page.ScanID), 0700)
+		err = os.MkdirAll(dir, 0700)
 		if err != nil {
-			return err
+			return fmt.Errorf("create directory %s for scan %s: %w", dir, page.ScanID, err)
 		}
 	}
 
-	f, err := os.OpenFile(path.Join(fs.dir, page.ScanID, fmt.Sprintf("%d.jpg", page.SequenceID)), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	p := path.Join(dir, fmt.Sprintf("%d.jpg", page.SequenceID))
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		return err
+		return fmt.Errorf("create file %s for scan %s page %d: %w", p, page.ScanID, page.SequenceID, err)
 	}
 	defer f.Close()
 	if _, err := io.Copy(f, page.Reader); err != nil {
-		return err
+		return fmt.Errorf("write page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, p, err)
 	}
 	if _, err := page.Reader.Seek(0, io.SeekStart); err != nil {
-		return err
+		return fmt.Errorf("rewind reader for page %d of scan %s: %w", page.SequenceID, page.ScanID, err)
 	}
 	log.Debugf("Created file %s", f.Name())
 	return nil

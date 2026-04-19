@@ -95,7 +95,7 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 		if err != nil {
 			close(pageChan)
 			wg.Wait()
-			return fmt.Errorf("unable to read page: %w", err)
+			return fmt.Errorf("unable to read page %d of scan %s: %w", seq, scanID, err)
 		}
 		pageChan <- models.ScannedPage{
 			Reader:     bytes.NewReader(b),
@@ -109,7 +109,7 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	if err := scanner.Err(); err != nil {
 		close(pageChan)
 		wg.Wait()
-		return fmt.Errorf("scanner error: %w", err)
+		return fmt.Errorf("scanner error for scan %s: %w", scanID, err)
 	}
 
 	close(pageChan)
@@ -118,7 +118,7 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	failed := failedPages.Load()
 	total := totalPages.Load()
 	if failed > 0 {
-		log.Warnf("%d of %d pages failed processing", failed, total)
+		log.Warnf("scan %s: %d of %d pages failed processing", scanID, failed, total)
 	}
 	return nil
 }
@@ -138,10 +138,13 @@ func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string
 
 	job, err := c.Scan(settings)
 	if err != nil {
-		return fmt.Errorf("unable to create scan job: %w", err)
+		return fmt.Errorf("unable to create scan job on scanner %q source %q: %w", scannerName, source, err)
 	}
 	err = i.ScanPages(ctx, job, DefaultWorkers)
-	return err
+	if err != nil {
+		return fmt.Errorf("scan pages from scanner %q source %q: %w", scannerName, source, err)
+	}
+	return nil
 }
 
 func (i *Ingestor) processPage(ctx context.Context, pageChan <-chan models.ScannedPage, wg *sync.WaitGroup, failedPages *atomic.Int64) {
@@ -157,8 +160,8 @@ func (i *Ingestor) processPageInner(ctx context.Context, page models.ScannedPage
 	// Read all page data into a single buffer to avoid multiple copies
 	pageData, err := io.ReadAll(page.Reader)
 	if err != nil {
-		log.Errorf("unable to read page: %v", err)
-		return err
+		log.Errorf("unable to read page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
+		return fmt.Errorf("read page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 
 	// Store the page using the same byte slice (avoids double buffering)
@@ -168,8 +171,8 @@ func (i *Ingestor) processPageInner(ctx context.Context, page models.ScannedPage
 		SequenceID: page.SequenceID,
 	})
 	if err != nil {
-		log.Errorf("unable to store page: %v", err)
-		return err
+		log.Errorf("unable to store page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
+		return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 
 	// Reuse the same byte slice for OCR/indexing
@@ -181,7 +184,7 @@ func (i *Ingestor) ocrAndIndex(ctx context.Context, page models.ScannedPage) err
 	log.Debugf("ingesting page %d of scan %q", page.SequenceID, page.ScanID)
 	err := i.idx.Index(ctx, page)
 	if err != nil {
-		log.Errorf("unable to index: %v", err)
+		log.Errorf("unable to index page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
 	}
 	return err
 }
@@ -209,5 +212,8 @@ func (i *Ingestor) Ping(ctx context.Context) error {
 
 	log.Debugf("Pinging Zefix")
 	err = i.idx.PingZefix()
-	return err
+	if err != nil {
+		return fmt.Errorf("unable to ping Zefix: %w", err)
+	}
+	return nil
 }

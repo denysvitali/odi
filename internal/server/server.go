@@ -57,7 +57,7 @@ func WithIndexer(idx *indexer.Indexer) ServerOption {
 func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVerify bool, osIndex string, storage model.RWStorage, opts ...ServerOption) (*Server, error) {
 	u, err := url.Parse(osAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse OpenSearch address %q: %w", osAddr, err)
 	}
 
 	s := Server{
@@ -90,13 +90,13 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create OpenSearch client for %s: %w", u.String(), err)
 	}
 	s.osClient = c
 
 	err = s.verifyOpensearch(context.Background(), osIndex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("verify OpenSearch index %s: %w", osIndex, err)
 	}
 
 	s.initRoutes()
@@ -106,12 +106,12 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 func (s *Server) verifyOpensearch(ctx context.Context, osIndex string) error {
 	err := s.pingOs(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("ping OpenSearch at %s: %w", s.osUrl.String(), err)
 	}
 
 	err = s.verifyIndex(ctx, osIndex)
 	if err != nil {
-		return err
+		return fmt.Errorf("verify index %s: %w", osIndex, err)
 	}
 	return nil
 }
@@ -183,7 +183,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 		}
 		jsonBody, marshalErr := json.Marshal(scrollBody)
 		if marshalErr != nil {
-			log.Errorf("unable to marshal scroll body: %v", marshalErr)
+			log.Errorf("unable to marshal scroll body for scroll_id=%s: %v", searchRequest.ScrollId, marshalErr)
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
@@ -215,7 +215,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 
 		jsonBody, marshalErr := json.Marshal(searchContent)
 		if marshalErr != nil {
-			log.Errorf("unable to marshal JSON: %v", marshalErr)
+			log.Errorf("unable to marshal search body for term=%q size=%d: %v", searchRequest.SearchTerm, size, marshalErr)
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
@@ -229,13 +229,13 @@ func (s *Server) handleSearch(c *gin.Context) {
 	}
 
 	if err != nil {
-		log.Errorf("unable to perform search: %v", err)
+		log.Errorf("unable to perform search (term=%q scrollId=%q size=%d): %v", searchRequest.SearchTerm, searchRequest.ScrollId, searchRequest.Size, err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
 	if res.IsError() {
-		log.Errorf("unable to perform search: %s", res.Status())
+		log.Errorf("search returned error (term=%q scrollId=%q): %s", searchRequest.SearchTerm, searchRequest.ScrollId, res.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -244,7 +244,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 	_, err = io.Copy(c.Writer, res.Body)
 	if err != nil {
-		log.Errorf("unable to copy: %v", err)
+		log.Errorf("unable to stream search response (term=%q scrollId=%q): %v", searchRequest.SearchTerm, searchRequest.ScrollId, err)
 		return
 	}
 }
@@ -259,12 +259,13 @@ func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr str
 	page, err := s.storage.Retrieve(c.Request.Context(), scanID, int(sequenceId))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Debugf("page not found: scan=%s seq=%d", scanID, sequenceId)
 			c.JSON(http.StatusNotFound, gin.H{
-				"error": "not found",
+				"error": fmt.Sprintf("page not found: scan=%s seq=%d", scanID, sequenceId),
 			})
 			return
 		}
-		log.Errorf("unable to retrieve page: %v", err)
+		log.Errorf("unable to retrieve page scan=%s seq=%d: %v", scanID, sequenceId, err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -273,7 +274,7 @@ func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr str
 	c.Status(http.StatusOK)
 	_, err = io.Copy(c.Writer, page.Reader)
 	if err != nil {
-		log.Errorf("unable to copy: %v", err)
+		log.Errorf("unable to stream page scan=%s seq=%d: %v", scanID, sequenceId, err)
 		return
 	}
 }
@@ -344,6 +345,7 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 	req := opensearchapi.GetRequest{Index: s.osIndex, DocumentID: docId}
 	res, err := req.Do(c.Request.Context(), s.osClient)
 	if err != nil {
+		log.Errorf("unable to fetch document %s from OpenSearch: %v", docId, err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -357,7 +359,7 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 	var doc Document[models.Document]
 	err = json.NewDecoder(res.Body).Decode(&doc)
 	if err != nil {
-		log.Errorf("unable to decode document: %v", err)
+		log.Errorf("unable to decode document %s: %v", docId, err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -385,7 +387,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		}
 		jsonBody, marshalErr := json.Marshal(scrollBody)
 		if marshalErr != nil {
-			log.Errorf("unable to marshal scroll body: %v", marshalErr)
+			log.Errorf("unable to marshal scroll body for scroll_id=%s: %v", scrollId, marshalErr)
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
@@ -414,12 +416,13 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		res, err = req.Do(c.Request.Context(), s.osClient)
 	}
 	if err != nil {
+		log.Errorf("unable to get documents (scroll=%v): %v", scrollId != "", err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
 	if res.IsError() {
-		log.Warnf("unable to get documents: %s", res.Status())
+		log.Warnf("unable to get documents (scroll=%v): %s", scrollId != "", res.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -432,7 +435,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	}
 	err = json.NewDecoder(res.Body).Decode(&docs)
 	if err != nil {
-		log.Errorf("unable to decode documents: %v", err)
+		log.Errorf("unable to decode documents response (scroll=%v): %v", scrollId != "", err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -444,10 +447,10 @@ func (s *Server) pingOs(ctx context.Context) error {
 	req := opensearchapi.PingRequest{}
 	res, err := req.Do(ctx, s.osClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("ping OpenSearch: %w", err)
 	}
 	if res.IsError() {
-		return fmt.Errorf("unable to ping OS: %s", res.Status())
+		return fmt.Errorf("ping OpenSearch returned %s", res.Status())
 	}
 	return nil
 }
@@ -456,7 +459,7 @@ func (s *Server) verifyIndex(ctx context.Context, index string) error {
 	req := opensearchapi.CatIndicesRequest{Index: []string{index}}
 	res, err := req.Do(ctx, s.osClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("list index %s: %w", index, err)
 	}
 
 	if res.IsError() {

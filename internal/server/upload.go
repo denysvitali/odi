@@ -51,6 +51,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 	}
 
 	scanID := uuid.NewString()
+	log.Infof("upload started: scan=%s files=%d", scanID, len(files))
 	results := make([]uploadPageResult, len(files))
 
 	var wg sync.WaitGroup
@@ -69,6 +70,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if err != nil {
 				result.Status = "failed"
 				result.Error = err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q: %v", scanID, idx+1, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -80,6 +82,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 				f.Close()
 				result.Status = "failed"
 				result.Error = err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, idx+1, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -97,6 +100,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if err := s.storage.Store(c.Request.Context(), page); err != nil {
 				result.Status = "failed"
 				result.Error = "storage: " + err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to store page: %v", scanID, idx+1, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -106,6 +110,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if _, err := reader.Seek(0, io.SeekStart); err != nil {
 				result.Status = "failed"
 				result.Error = "seek: " + err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to seek after storage: %v", scanID, idx+1, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -116,6 +121,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if err := s.indexer.Index(c.Request.Context(), page); err != nil {
 				result.Status = "failed"
 				result.Error = "index: " + err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to index page: %v", scanID, idx+1, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -141,6 +147,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 		}
 	}
 
+	log.Infof("upload finished: scan=%s processed=%d failed=%d", scanID, processed, failed)
 	c.JSON(http.StatusOK, uploadResponse{
 		ScanID:    scanID,
 		Processed: processed,

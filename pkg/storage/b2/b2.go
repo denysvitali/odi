@@ -32,28 +32,29 @@ type B2 struct {
 }
 
 func (b *B2) Store(ctx context.Context, page models.ScannedPage) (err error) {
+	key := fileName(page.ScanID, page.SequenceID)
 
 	if b.crypt != nil {
 		// The nonce needs to be unique, but not secure.
 		// It should not be reused for more than 64GB of data for the same key.
 		page.Reader, err = b.crypt.Encrypt(page.Reader)
 		if err != nil {
-			return err
+			return fmt.Errorf("encrypt page %s: %w", key, err)
 		}
 	}
 
 	fileSize, err := page.Reader.Seek(0, io.SeekEnd)
 	if err != nil {
-		return err
+		return fmt.Errorf("seek end for page %s: %w", key, err)
 	}
 	_, err = page.Reader.Seek(0, io.SeekStart)
 	if err != nil {
-		return err
+		return fmt.Errorf("seek start for page %s: %w", key, err)
 	}
 
 	obj, err := b.b2FS.Put(ctx, page.Reader, b.toStorageFile(page, fileSize), &fs.RangeOption{Start: 0, End: fileSize})
 	if err != nil {
-		return err
+		return fmt.Errorf("put object %s to bucket %s: %w", key, b.bucketName, err)
 	}
 	log.Debugf("obj=%+v", obj)
 	return nil
@@ -73,31 +74,33 @@ func (b *B2) toStorageFile(page models.ScannedPage, fileSize int64) fs.ObjectInf
 }
 
 func (b *B2) Retrieve(ctx context.Context, scanID string, sequenceId int) (*models.ScannedPage, error) {
-	obj, err := b.b2FS.NewObject(ctx, fileName(scanID, sequenceId))
+	key := fileName(scanID, sequenceId)
+	obj, err := b.b2FS.NewObject(ctx, key)
 	if err != nil {
 		if errors.Is(err, fs.ErrorObjectNotFound) {
+			log.Debugf("object not found in bucket %s: %s", b.bucketName, key)
 			return nil, os.ErrNotExist
 		}
-		return nil, err
+		return nil, fmt.Errorf("lookup object %s in bucket %s: %w", key, b.bucketName, err)
 	}
 
 	var reader io.ReadSeeker
 	objReader, err := obj.Open(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open object %s from bucket %s: %w", key, b.bucketName, err)
 	}
 	defer objReader.Close()
 
 	if b.crypt != nil {
 		reader, err = b.crypt.Decrypt(objReader)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decrypt object %s: %w", key, err)
 		}
 	} else {
 		buffer := bytes.NewBuffer(nil)
 		_, err = io.Copy(buffer, objReader)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read object %s from bucket %s: %w", key, b.bucketName, err)
 		}
 		reader = bytes.NewReader(buffer.Bytes())
 	}
@@ -115,7 +118,7 @@ func (b *B2) ListFiles(scanID string) ([]models.ScannedPage, error) {
 	ctx := context.Background()
 	objects, err := b.b2FS.List(ctx, scanID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list files for scan %s in bucket %s: %w", scanID, b.bucketName, err)
 	}
 
 	var files []models.ScannedPage
@@ -132,9 +135,10 @@ func objToScannedPage(obj fs.DirEntry) models.ScannedPage {
 	s.ScanID = scanID
 	fileName = strings.TrimSuffix(fileName, ".jpg")
 	seqId, err := strconv.ParseInt(fileName, 10, 64)
-	if err == nil {
-		s.SequenceID = int(seqId)
+	if err != nil {
+		log.Warnf("failed to parse sequence ID from %q: %v", fileName, err)
 	}
+	s.SequenceID = int(seqId)
 	return s
 }
 
@@ -159,7 +163,7 @@ func New(config Config) (*B2, error) {
 	}
 
 	if len(config.Passphrase) == 0 {
-		log.Warnf("no passphrase provided, encryption will be disabled")
+		log.Warnf("no passphrase provided for bucket %s, encryption will be disabled", config.BucketName)
 	}
 
 	b2FS, err := rcloneb2.NewFs(context.Background(),
@@ -173,7 +177,7 @@ func New(config Config) (*B2, error) {
 	)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create B2 filesystem for bucket %s: %w", config.BucketName, err)
 	}
 
 	b := &B2{
@@ -185,7 +189,7 @@ func New(config Config) (*B2, error) {
 		// Get key from passphrase
 		b.crypt, err = odicrypt.New(config.Passphrase)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("derive encryption key from passphrase for bucket %s: %w", config.BucketName, err)
 		}
 	}
 
