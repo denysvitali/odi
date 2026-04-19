@@ -133,14 +133,22 @@ func corsOrigins() []string {
 	return []string{"http://localhost:5173"}
 }
 
+func (s *Server) handleHealthz(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 func (s *Server) initRoutes() {
-	s.e.Use(gin.Logger())
+	s.e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/healthz"},
+	}))
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type"},
 		AllowCredentials: false,
 	}))
+
+	s.e.GET("/healthz", s.handleHealthz)
 
 	g := s.e.Group("/api/v1")
 	g.POST("/search", s.handleSearch)

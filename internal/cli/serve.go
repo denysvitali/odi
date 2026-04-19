@@ -31,7 +31,7 @@ The server provides the following endpoints:
 }
 
 func init() {
-	serveCmd.Flags().StringP(FlagListenAddr, "L", "127.0.0.1:8085", "Address to listen on")
+	serveCmd.Flags().StringP(FlagListenAddr, "L", "0.0.0.0:8085", "Address to listen on")
 	_ = viper.BindPFlag(FlagListenAddr, serveCmd.Flags().Lookup(FlagListenAddr))
 
 	AddOpenSearchFlags(serveCmd)
