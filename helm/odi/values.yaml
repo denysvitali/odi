@@ -7,7 +7,7 @@ imagePullSecrets: []
 # ---------------------------------------------------------------------------
 backend:
   image:
-    repository: ghcr.io/your-org/odi-backend
+    repository: ghcr.io/your-org/odi
     tag: "latest"
     pullPolicy: IfNotPresent
 

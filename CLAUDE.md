@@ -4,23 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Layout
 
-Monorepo containing three buildable components, unified through `Makefile` targets at the root.
+Monorepo with a single Go module (`github.com/denysvitali/odi`) and a Vue 3 frontend, unified through `Makefile` targets.
 
-- `backend/` — Go REST API and CLI (Cobra). Entry point: `backend/main.go` → `internal/cli`. See `backend/CLAUDE.md` for package-level details.
+- `main.go` — Go CLI entry point (Cobra), binary name `odi`
+- `internal/cli/` — CLI command handlers (serve, index, pdf, ingest, zefix-import, zefix-find, etc.)
+- `internal/server/` — Gin REST API
+- `pkg/` — Shared Go packages (indexer, ingestor, storage, ocrclient, models, crypt, zefix, etc.)
+- `zefix-tools/` — Zefix Swiss company register package (`pkg/zefix/`) and legacy standalone CLIs
 - `frontend/` — Vue 3 + TypeScript SPA built with Vite. See `frontend/CLAUDE.md`.
-- `zefix-tools/` — Go CLIs (`zefix-import`, `zefix-find`) that ingest and query the Swiss Zefix company database into PostgreSQL; backend depends on this data via `ZEFIX_DSN`.
 - `helm/odi/` — Helm chart for deployment.
 
-Go uses a workspace (`go.work`) spanning `./backend` and `./zefix-tools` — build/test commands must be run from those subdirectories, not from the root.
+All Go build/test/lint commands run from the repo root.
 
 ## Common Commands
 
-From the repo root:
-
 ```bash
-make build          # builds backend, zefix-tools, and frontend
-make test           # runs go test ./... in backend & zefix-tools, plus pnpm test
-make lint           # golangci-lint on both Go modules, pnpm lint on frontend
+make build          # builds Go binary and frontend
+make test           # runs go test ./... and pnpm test
+make lint           # golangci-lint + pnpm lint
 make docker-up      # starts OpenSearch, OpenSearch Dashboards, and PostgreSQL
 make docker-down
 ```
@@ -28,13 +29,14 @@ make docker-down
 Component-specific:
 
 ```bash
-# Backend (from backend/)
+# Go CLI (from repo root)
 go run . serve                                 # REST API
 go run . index /path/to/scans                  # Index a directory of images
 go run . pdf /path/to/pdfs                     # Index PDFs
+go run . zefix-import -i zefix.json -d $ZEFIX_DSN  # Import Zefix data
+go run . zefix-find "Company Name" -d $ZEFIX_DSN   # Find a company
 go test ./pkg/crypt -run TestEncryptDecrypt    # Single test
 E2E_TEST=1 go test ./...                       # E2E tests (gated by env var)
-docker run --rm -v $(pwd):/workspace -w /workspace bufbuild/buf:latest generate  # protobuf
 
 # Frontend (from frontend/)
 pnpm run dev
@@ -45,7 +47,7 @@ pnpm test -- path/to/file.spec.ts              # Single test
 
 ## Prerequisites
 
-- Go 1.26+ (workspace pins 1.26.0)
+- Go 1.26+
 - pnpm for the frontend
 - Docker + Compose
 - A reachable [ocr-server](https://github.com/denysvitali/ocr-server) (Android/ML Kit) for OCR
@@ -54,20 +56,20 @@ pnpm test -- path/to/file.spec.ts              # Single test
 ## Architecture (big picture)
 
 ```
-Scanner (AirScan) ──► backend/pkg/ingestor ──► backend/pkg/indexer ──► OpenSearch
-                                                      │
-                                                      ├──► backend/pkg/ocrclient ──► OCR server (remote)
-                                                      └──► backend/pkg/storage    ──► B2 (encrypted) or local FS
-                                                                                       │
-Vue 3 SPA (frontend/) ──► backend/pkg/server (Gin REST) ◄────────────────────────── OpenSearch
+Scanner (AirScan) / File Upload ──► pkg/ingestor / internal/server ──► pkg/indexer ──► OpenSearch
+                                                                              │
+                                                                              ├──► pkg/ocrclient ──► OCR server (remote)
+                                                                              └──► pkg/storage    ──► B2 (encrypted) or local FS
+                                                                                                       │
+Vue 3 SPA (frontend/) ──► internal/server (Gin REST) ◄────────────────────────── OpenSearch
                                         │
-                                        └──► backend/pkg/zefix (PostgreSQL from zefix-tools import)
+                                        └──► pkg/zefix (PostgreSQL from zefix-tools import)
 ```
 
 Key cross-component contracts:
-- `STORAGE_TYPE` (`b2` or `filesystem`), `OPENSEARCH_*`, `OCR_API_ADDR`, `ZEFIX_DSN`, `SCANNER_NAME` — consumed by the backend; see `backend/README.md` for the full list.
+- `STORAGE_TYPE` (`b2` or `filesystem`), `OPENSEARCH_*`, `OCR_API_ADDR`, `ZEFIX_DSN`, `SCANNER_NAME` — consumed by the server/indexer.
 - Credentials may use a `keychain:<name>` prefix (e.g. `B2_KEY=keychain:b2-key`) for OS keychain lookup.
-- B2 storage is AES-256-GCM encrypted with PBKDF2 (`backend/pkg/crypt`); filesystem storage is plaintext — use a FUSE-encrypted mount if you need at-rest encryption there.
+- B2 storage is AES-256-GCM encrypted with PBKDF2 (`pkg/crypt`); filesystem storage is plaintext — use a FUSE-encrypted mount if you need at-rest encryption there.
 - The frontend loads runtime config from `public/settings.json` (templated by `settings.json.tpl` in Docker).
 - CORS origins for the backend are set via `CORS_ALLOWED_ORIGINS` (default `http://localhost:5173`).
 

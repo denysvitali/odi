@@ -1,8 +1,0 @@
-.git
-.github
-.gitignore
-.env
-.env.*
-*.md
-docs/
-resources/testdata/
