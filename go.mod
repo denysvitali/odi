@@ -1,8 +1,6 @@
 module github.com/denysvitali/odi
 
-go 1.21.0
-
-toolchain go1.23.2
+go 1.26.2
 
 require (
 	github.com/alexflint/go-arg v1.4.3
