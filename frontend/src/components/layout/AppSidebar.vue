@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Home, FileText, Settings, HelpCircle } from 'lucide-vue-next'
+import { Home, FileText, Upload, Settings, HelpCircle } from 'lucide-vue-next'
 
 const router = useRouter()
 
 const navItems = [
   { name: 'Home', path: '/', icon: Home },
-  { name: 'Documents', path: '/documents', icon: FileText }
+  { name: 'Documents', path: '/documents', icon: FileText },
+  { name: 'Upload', path: '/upload', icon: Upload }
 ]
 
 const footerItems = [
