@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Menu, X, FileText, Home } from 'lucide-vue-next'
+import { Menu, X, FileText, Home, Upload } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/composables/useTheme'
 
@@ -11,7 +11,8 @@ const mobileMenuOpen = ref(false)
 
 const navItems = [
   { name: 'Home', path: '/', icon: Home },
-  { name: 'Documents', path: '/documents', icon: FileText }
+  { name: 'Documents', path: '/documents', icon: FileText },
+  { name: 'Upload', path: '/upload', icon: Upload }
 ]
 
 const isActive = (path: string) => router.currentRoute.value.path === path
