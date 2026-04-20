@@ -57,13 +57,15 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 		return fmt.Errorf("read page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 
-	err = b.storage.Store(ctx, models.ScannedPage{
-		Reader:     bytes.NewReader(pageData),
-		ScanID:     page.ScanID,
-		SequenceID: page.SequenceID,
-	})
-	if err != nil {
-		return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
+	if b.storage != nil {
+		err = b.storage.Store(ctx, models.ScannedPage{
+			Reader:     bytes.NewReader(pageData),
+			ScanID:     page.ScanID,
+			SequenceID: page.SequenceID,
+		})
+		if err != nil {
+			return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
+		}
 	}
 
 	page.Reader = bytes.NewReader(pageData)
