@@ -14,6 +14,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	odicrypt "github.com/denysvitali/odi/pkg/crypt"
 	"github.com/denysvitali/odi/pkg/models"
@@ -64,6 +65,10 @@ func fileName(scanID string, sequenceNumber int) string {
 	return fmt.Sprintf("%s/%d.jpg", scanID, sequenceNumber)
 }
 
+func thumbnailKey(scanID string, sequenceNumber int) string {
+	return fmt.Sprintf("%s/%d_thumb.jpg", scanID, sequenceNumber)
+}
+
 func (b *B2) toStorageFile(page models.ScannedPage, fileSize int64) fs.ObjectInfo {
 	return rclone.NewSourceFile(
 		b.bucketName,
@@ -110,6 +115,96 @@ func (b *B2) Retrieve(ctx context.Context, scanID string, sequenceId int) (*mode
 		ScanID:     scanID,
 		SequenceID: sequenceId,
 		ScanTime:   obj.ModTime(ctx),
+	}, nil
+}
+
+// ThumbnailExists checks if a thumbnail exists for the given scan and sequence
+func (b *B2) ThumbnailExists(ctx context.Context, scanID string, sequenceId int) (bool, error) {
+	key := thumbnailKey(scanID, sequenceId)
+	_, err := b.b2FS.NewObject(ctx, key)
+	if err != nil {
+		if errors.Is(err, fs.ErrorObjectNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// StoreThumbnail stores a thumbnail image for the given scan and sequence
+func (b *B2) StoreThumbnail(ctx context.Context, scanID string, sequenceId int, reader io.Reader) error {
+	key := thumbnailKey(scanID, sequenceId)
+
+	// Read into buffer since we need file size and reader may not be seekable
+	var buf bytes.Buffer
+	_, err := io.Copy(&buf, reader)
+	if err != nil {
+		return fmt.Errorf("read thumbnail %s into buffer: %w", key, err)
+	}
+	fileSize := int64(buf.Len())
+
+	var readerToStore io.Reader = &buf
+	if b.crypt != nil {
+		readerToStore, err = b.crypt.Encrypt(&buf)
+		if err != nil {
+			return fmt.Errorf("encrypt thumbnail %s: %w", key, err)
+		}
+	}
+
+	obj, err := b.b2FS.Put(ctx, readerToStore, b.toThumbnailStorageFile(scanID, sequenceId, fileSize), &fs.RangeOption{Start: 0, End: fileSize})
+	if err != nil {
+		return fmt.Errorf("put thumbnail %s to bucket %s: %w", key, b.bucketName, err)
+	}
+	log.Debugf("thumbnail obj=%+v", obj)
+	return nil
+}
+
+func (b *B2) toThumbnailStorageFile(scanID string, sequenceId int, fileSize int64) fs.ObjectInfo {
+	return rclone.NewSourceFile(
+		b.bucketName,
+		thumbnailKey(scanID, sequenceId),
+		time.Now(),
+		fileSize,
+	)
+}
+
+// RetrieveThumbnail retrieves a thumbnail image
+func (b *B2) RetrieveThumbnail(ctx context.Context, scanID string, sequenceId int) (*models.ThumbnailPage, error) {
+	key := thumbnailKey(scanID, sequenceId)
+	obj, err := b.b2FS.NewObject(ctx, key)
+	if err != nil {
+		if errors.Is(err, fs.ErrorObjectNotFound) {
+			log.Debugf("thumbnail not found in bucket %s: %s", b.bucketName, key)
+			return nil, os.ErrNotExist
+		}
+		return nil, fmt.Errorf("lookup thumbnail %s in bucket %s: %w", key, b.bucketName, err)
+	}
+
+	var reader io.ReadSeeker
+	objReader, err := obj.Open(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("open thumbnail %s from bucket %s: %w", key, b.bucketName, err)
+	}
+	defer objReader.Close()
+
+	if b.crypt != nil {
+		reader, err = b.crypt.Decrypt(objReader)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt thumbnail %s: %w", key, err)
+		}
+	} else {
+		buffer := bytes.NewBuffer(nil)
+		_, err = io.Copy(buffer, objReader)
+		if err != nil {
+			return nil, fmt.Errorf("read thumbnail %s from bucket %s: %w", key, b.bucketName, err)
+		}
+		reader = bytes.NewReader(buffer.Bytes())
+	}
+
+	return &models.ThumbnailPage{
+		Reader:     reader,
+		ScanID:     scanID,
+		SequenceID: sequenceId,
 	}, nil
 }
 

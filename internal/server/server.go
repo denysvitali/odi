@@ -25,6 +25,7 @@ import (
 	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
+	"github.com/denysvitali/odi/pkg/thumbnailer"
 )
 
 const (
@@ -298,7 +299,6 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 		return
 	}
 
-	// Parse id in format: scanID_sequenceID
 	matches := docIdRegexp.FindStringSubmatch(id)
 	if len(matches) != 3 {
 		c.JSON(http.StatusBadRequest, badRequest)
@@ -307,6 +307,94 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 
 	scanID := matches[1]
 	sequenceIdStr := matches[2]
+	sequenceId, err := strconv.ParseInt(sequenceIdStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, badRequest)
+		return
+	}
+
+	// Try thumbnail storage first
+	if ts, ok := s.storage.(model.ThumbnailStorage); ok {
+		ctx := c.Request.Context()
+
+		exists, err := ts.ThumbnailExists(ctx, scanID, int(sequenceId))
+		if err != nil {
+			log.Warnf("error checking thumbnail existence: %v", err)
+		} else if exists {
+			thumb, err := ts.RetrieveThumbnail(ctx, scanID, int(sequenceId))
+			if err != nil {
+				log.Warnf("error retrieving thumbnail: %v", err)
+			} else {
+				c.Header("Content-Type", "image/jpeg")
+				c.Status(http.StatusOK)
+				_, err = io.Copy(c.Writer, thumb.Reader)
+				if err != nil {
+					log.Errorf("unable to stream thumbnail: %v", err)
+				}
+				return
+			}
+		}
+
+		// Thumbnail doesn't exist, generate it
+		log.Debugf("generating thumbnail for %s_%d", scanID, sequenceId)
+		page, err := s.storage.Retrieve(ctx, scanID, int(sequenceId))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "page not found"})
+				return
+			}
+			log.Errorf("error retrieving original page: %v", err)
+			c.JSON(http.StatusInternalServerError, internalServerError)
+			return
+		}
+
+		// Generate thumbnail
+		_, err = page.Reader.Seek(0, io.SeekStart)
+		if err != nil {
+			log.Errorf("error seeking page reader: %v", err)
+			c.JSON(http.StatusInternalServerError, internalServerError)
+			return
+		}
+
+		thumbReader, err := thumbnailer.Generate(page.Reader)
+		if err != nil {
+			log.Errorf("error generating thumbnail: %v", err)
+			// Fall back to original
+			s.returnDocument(c, scanID, sequenceIdStr)
+			return
+		}
+
+		// Store thumbnail for future requests
+		err = ts.StoreThumbnail(ctx, scanID, int(sequenceId), thumbReader)
+		if err != nil {
+			log.Warnf("error storing thumbnail: %v", err)
+			// Continue anyway - we still have the thumbnail to return
+		}
+
+		// Return thumbnail
+		_, err = thumbReader.(io.ReadSeeker).Seek(0, io.SeekStart)
+		if err != nil {
+			// thumbReader might not be a ReadSeeker
+			c.Header("Content-Type", "image/jpeg")
+			c.Status(http.StatusOK)
+			_, err = io.Copy(c.Writer, thumbReader)
+			if err != nil {
+				log.Errorf("unable to stream generated thumbnail: %v", err)
+			}
+			return
+		}
+
+		c.Header("Content-Type", "image/jpeg")
+		c.Status(http.StatusOK)
+		_, err = io.Copy(c.Writer, thumbReader)
+		if err != nil {
+			log.Errorf("unable to stream generated thumbnail: %v", err)
+		}
+		return
+	}
+
+	// Thumbnail storage not available, fall back to original
+	log.Warn("storage does not implement ThumbnailStorage, returning original image")
 	s.returnDocument(c, scanID, sequenceIdStr)
 }
 
