@@ -6,7 +6,7 @@ version: 0.1.0
 appVersion: "1.0.0"
 dependencies:
   - name: opensearch
-    version: ">=2.37.0"
+    version: ">=3.6.0"
     repository: "https://opensearch-project.github.io/helm-charts/"
     condition: opensearch.enabled
   - name: cloudnative-pg
