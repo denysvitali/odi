@@ -457,7 +457,7 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 }
 
 func (s *Server) handleGetDocuments(c *gin.Context) {
-	scrollId := c.Query("scrollId")
+	scrollId := c.Query("scroll_id")
 	var searchResp *opensearchapi.SearchResp
 	var err error
 
