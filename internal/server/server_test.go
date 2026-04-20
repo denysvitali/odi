@@ -149,7 +149,9 @@ func (m *mockCombinedStorage) StoreThumbnail(ctx context.Context, scanID string,
 func createTestPNG() []byte {
 	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
 	var buf bytes.Buffer
-	png.Encode(&buf, img)
+	if err := png.Encode(&buf, img); err != nil {
+		panic(err)
+	}
 	return buf.Bytes()
 }
 
