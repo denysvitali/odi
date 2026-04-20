@@ -393,14 +393,6 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 			log.Errorf("unable to stream generated thumbnail: %v", err)
 		}
 		return
-
-		c.Header("Content-Type", "image/jpeg")
-		c.Status(http.StatusOK)
-		_, err = io.Copy(c.Writer, thumbReader)
-		if err != nil {
-			log.Errorf("unable to stream generated thumbnail: %v", err)
-		}
-		return
 	}
 
 	// Thumbnail storage not available, fall back to original
