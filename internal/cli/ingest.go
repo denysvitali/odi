@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -98,10 +97,7 @@ func runIngest(cmd *cobra.Command, args []string) error {
 }
 
 func buildIngestBackend(cmd *cobra.Command) (ingestor.Backend, error) {
-	kind := strings.ToLower(GetString(cmd, FlagBackend))
-	if kind == "" {
-		kind = BackendLocal
-	}
+	kind := resolveBackendKind(cmd)
 	switch kind {
 	case BackendLocal:
 		return buildLocalBackend(cmd)

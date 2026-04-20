@@ -164,6 +164,19 @@ func RequireFlags(cmd *cobra.Command, flags ...string) error {
 	return nil
 }
 
+// resolveBackendKind returns the effective backend kind. If --backend is
+// explicitly set it is honoured. Otherwise, if --backend-url is set the
+// backend is assumed to be "remote"; otherwise "local".
+func resolveBackendKind(cmd *cobra.Command) string {
+	if cmd.Flags().Changed(FlagBackend) {
+		return strings.ToLower(GetString(cmd, FlagBackend))
+	}
+	if GetString(cmd, FlagBackendURL) != "" {
+		return BackendRemote
+	}
+	return strings.ToLower(GetString(cmd, FlagBackend))
+}
+
 // GetStorage returns a configured storage backend based on flags
 func GetStorage(cmd *cobra.Command) (model.RWStorage, error) {
 	storageType := GetString(cmd, FlagStorageType)

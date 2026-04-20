@@ -152,10 +152,7 @@ func runIndex(cmd *cobra.Command, args []string) error {
 }
 
 func buildIndexBackend(cmd *cobra.Command) (ingestor.Backend, error) {
-	kind := strings.ToLower(GetString(cmd, FlagBackend))
-	if kind == "" {
-		kind = BackendLocal
-	}
+	kind := resolveBackendKind(cmd)
 	switch kind {
 	case BackendLocal:
 		return buildLocalIndexBackend(cmd)
