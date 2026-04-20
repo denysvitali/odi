@@ -20,8 +20,8 @@
   },
   "packageRules": [
     {
-      "description": "Group all backend updates into one PR",
-      "matchFileNames": ["backend/**"],
+      "description": "Group all Go module updates (root go.mod) into one PR",
+      "matchFileNames": ["go.mod", "go.sum", "internal/**", "pkg/**", "main.go"],
       "groupName": "backend dependencies",
       "groupSlug": "backend"
     },
