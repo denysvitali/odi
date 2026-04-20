@@ -24,7 +24,7 @@ type Processor struct {
 }
 
 func New(zefixDsn string) (*Processor, error) {
-	if zefixDsn == "" {
+	if zefixDsn == "" || zefixDsn == "user=disabled database=disabled" {
 		return &Processor{}, nil
 	}
 	zefixClient, err := zefix.New(zefixDsn)
