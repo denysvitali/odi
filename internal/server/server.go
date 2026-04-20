@@ -207,8 +207,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 	}
 
 	searchContent := map[string]any{
-		"size":   size,
-		"scroll": "10m",
+		"size": size,
 		"query": map[string]any{
 			"multi_match": map[string]any{
 				"query":  searchRequest.SearchTerm,
@@ -232,6 +231,9 @@ func (s *Server) handleSearch(c *gin.Context) {
 	searchResp, err := s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
 		Indices: []string{s.osIndex},
 		Body:    bytes.NewReader(jsonBody),
+		Params: opensearchapi.SearchParams{
+			Scroll: 10 * time.Minute,
+		},
 	})
 	if err != nil {
 		log.Errorf("unable to perform search (term=%q size=%d): %v", searchRequest.SearchTerm, size, err)
@@ -485,8 +487,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 
 	// Initial search with scroll
 	searchBody := map[string]any{
-		"sort":   []map[string]any{{"indexedAt": "desc"}},
-		"scroll": "10m",
+		"sort": []map[string]any{{"indexedAt": "desc"}},
 	}
 	jsonBody, marshalErr := json.Marshal(searchBody)
 	if marshalErr != nil {
@@ -497,6 +498,9 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	searchResp, err = s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
 		Indices: []string{s.osIndex},
 		Body:    bytes.NewReader(jsonBody),
+		Params: opensearchapi.SearchParams{
+			Scroll: 10 * time.Minute,
+		},
 	})
 	if err != nil {
 		log.Errorf("unable to get documents: %v", err)
