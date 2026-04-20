@@ -23,7 +23,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/denysvitali/odi/pkg/indexer"
-	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
 	"github.com/denysvitali/odi/pkg/thumbnailer"
 )
@@ -40,7 +39,7 @@ type Server struct {
 	osPassword           string
 	osIndex              string
 	osInsecureSkipVerify bool
-	osClient             *opensearch.Client
+	osClient             *opensearchapi.Client
 	storage              model.RWStorage
 	indexer              *indexer.Indexer
 }
@@ -82,12 +81,14 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 		transport = http.DefaultTransport
 	}
 
-	c, err := opensearch.NewClient(
-		opensearch.Config{
-			Addresses: []string{s.osUrl.String()},
-			Username:  s.osUsername,
-			Password:  s.osPassword,
-			Transport: transport,
+	c, err := opensearchapi.NewClient(
+		opensearchapi.Config{
+			Client: opensearch.Config{
+				Addresses: []string{s.osUrl.String()},
+				Username:  s.osUsername,
+				Password:  s.osPassword,
+				Transport: transport,
+			},
 		},
 	)
 	if err != nil {
@@ -174,80 +175,83 @@ func (s *Server) handleSearch(c *gin.Context) {
 		return
 	}
 
-	var res *opensearchapi.Response
-
 	if searchRequest.ScrollId != "" {
 		// Continue pagination using scroll
-		scrollBody := map[string]any{
-			"scroll":    "10m",
-			"scroll_id": searchRequest.ScrollId,
-		}
-		jsonBody, marshalErr := json.Marshal(scrollBody)
-		if marshalErr != nil {
-			log.Errorf("unable to marshal scroll body for scroll_id=%s: %v", searchRequest.ScrollId, marshalErr)
+		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
+			ScrollID: searchRequest.ScrollId,
+		})
+		if err != nil {
+			log.Errorf("unable to perform scroll (scrollId=%q): %v", searchRequest.ScrollId, err)
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
-		req := opensearchapi.ScrollRequest{
-			Body: bytes.NewReader(jsonBody),
-		}
-		res, err = req.Do(c.Request.Context(), s.osClient)
-	} else {
-		// Initial search with scroll enabled
-		size := searchRequest.Size
-		if size <= 0 {
-			size = 50
-		}
-
-		searchContent := map[string]any{
-			"size": size,
-			"query": map[string]any{
-				"multi_match": map[string]any{
-					"query":  searchRequest.SearchTerm,
-					"fields": []string{"text"},
-				},
-			},
-			"highlight": map[string]any{
-				"fields": map[string]any{
-					"text": map[string]any{},
-				},
-			},
-		}
-
-		jsonBody, marshalErr := json.Marshal(searchContent)
-		if marshalErr != nil {
-			log.Errorf("unable to marshal search body for term=%q size=%d: %v", searchRequest.SearchTerm, size, marshalErr)
+		if scrollResp.Inspect().Response.StatusCode >= 400 {
+			log.Errorf("scroll returned error (scrollId=%q): %s", searchRequest.ScrollId, scrollResp.Inspect().Response.Status())
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
-
-		req := opensearchapi.SearchRequest{
-			Index:  []string{s.osIndex},
-			Body:   bytes.NewReader(jsonBody),
-			Scroll: 10 * time.Minute,
+		c.Status(http.StatusOK)
+		c.Header("Content-Type", "application/json")
+		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
+		if err != nil {
+			log.Errorf("unable to stream scroll response (scrollId=%q): %v", searchRequest.ScrollId, err)
 		}
-		res, err = req.Do(c.Request.Context(), s.osClient)
+		scrollResp.Inspect().Response.Body.Close()
+		return
 	}
 
-	if err != nil {
-		log.Errorf("unable to perform search (term=%q scrollId=%q size=%d): %v", searchRequest.SearchTerm, searchRequest.ScrollId, searchRequest.Size, err)
+	// Initial search with scroll enabled
+	size := searchRequest.Size
+	if size <= 0 {
+		size = 50
+	}
+
+	searchContent := map[string]any{
+		"size":   size,
+		"scroll": "10m",
+		"query": map[string]any{
+			"multi_match": map[string]any{
+				"query":  searchRequest.SearchTerm,
+				"fields": []string{"text"},
+			},
+		},
+		"highlight": map[string]any{
+			"fields": map[string]any{
+				"text": map[string]any{},
+			},
+		},
+	}
+
+	jsonBody, marshalErr := json.Marshal(searchContent)
+	if marshalErr != nil {
+		log.Errorf("unable to marshal search body for term=%q size=%d: %v", searchRequest.SearchTerm, size, marshalErr)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	if res.IsError() {
-		log.Errorf("search returned error (term=%q scrollId=%q): %s", searchRequest.SearchTerm, searchRequest.ScrollId, res.Status())
+	searchResp, err := s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
+		Indices: []string{s.osIndex},
+		Body:    bytes.NewReader(jsonBody),
+	})
+	if err != nil {
+		log.Errorf("unable to perform search (term=%q size=%d): %v", searchRequest.SearchTerm, size, err)
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+
+	if searchResp.Inspect().Response.StatusCode >= 400 {
+		log.Errorf("search returned error (term=%q): %s", searchRequest.SearchTerm, searchResp.Inspect().Response.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
 	c.Status(http.StatusOK)
 	c.Header("Content-Type", "application/json")
-	_, err = io.Copy(c.Writer, res.Body)
+	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
 	if err != nil {
-		log.Errorf("unable to stream search response (term=%q scrollId=%q): %v", searchRequest.SearchTerm, searchRequest.ScrollId, err)
-		return
+		log.Errorf("unable to stream search response (term=%q): %v", searchRequest.SearchTerm, err)
 	}
+	searchResp.Inspect().Response.Body.Close()
 }
 
 func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr string) {
@@ -430,128 +434,110 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 		return
 	}
 
-	req := opensearchapi.GetRequest{Index: s.osIndex, DocumentID: docId}
-	res, err := req.Do(c.Request.Context(), s.osClient)
+	docResp, err := s.osClient.Document.Get(c.Request.Context(), opensearchapi.DocumentGetReq{
+		Index:      s.osIndex,
+		DocumentID: docId,
+	})
 	if err != nil {
 		log.Errorf("unable to fetch document %s from OpenSearch: %v", docId, err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	if res.IsError() {
-		log.Warnf("unable to get document %s: %s", docId, res.Status())
+	if docResp.Inspect().Response.StatusCode >= 400 {
+		log.Warnf("unable to get document %s: %s", docId, docResp.Inspect().Response.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	var doc Document[models.Document]
-	err = json.NewDecoder(res.Body).Decode(&doc)
-	if err != nil {
-		log.Errorf("unable to decode document %s: %v", docId, err)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	if !doc.Found {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "not found",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, doc.Source)
+	c.JSON(http.StatusOK, docResp.Source)
 }
 
 func (s *Server) handleGetDocuments(c *gin.Context) {
 	scrollId := c.Query("scrollId")
-	var res *opensearchapi.Response
+	var searchResp *opensearchapi.SearchResp
 	var err error
+
 	if scrollId != "" {
-		// Use Body to pass scroll_id instead of URL query parameter to avoid 405 errors
-		// when scroll_id is long. See https://github.com/opensearch-project/opensearch-go/issues/422
-		scrollBody := map[string]any{
-			"scroll":    "10m",
-			"scroll_id": scrollId,
-		}
-		jsonBody, marshalErr := json.Marshal(scrollBody)
-		if marshalErr != nil {
-			log.Errorf("unable to marshal scroll body for scroll_id=%s: %v", scrollId, marshalErr)
+		// Continue scroll
+		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
+			ScrollID: scrollId,
+		})
+		if err != nil {
+			log.Errorf("unable to get documents (scroll): %v", err)
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
-		req := opensearchapi.ScrollRequest{
-			Body: bytes.NewReader(jsonBody),
-		}
-		res, err = req.Do(c.Request.Context(), s.osClient)
-	} else {
-		// Use Body for sort and scroll to minimize URL parameters
-		searchBody := map[string]any{
-			"sort": []map[string]any{
-				{"indexedAt": "desc"},
-			},
-		}
-		jsonBody, marshalErr := json.Marshal(searchBody)
-		if marshalErr != nil {
-			log.Errorf("unable to marshal search body: %v", marshalErr)
+		if scrollResp.Inspect().Response.StatusCode >= 400 {
+			log.Warnf("unable to get documents (scroll): %s", scrollResp.Inspect().Response.Status())
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
-		req := opensearchapi.SearchRequest{
-			Index:  []string{s.osIndex},
-			Body:   bytes.NewReader(jsonBody),
-			Scroll: 10 * time.Minute,
+		c.Status(http.StatusOK)
+		c.Header("Content-Type", "application/json")
+		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
+		if err != nil {
+			log.Errorf("unable to stream documents response (scroll): %v", err)
 		}
-		res, err = req.Do(c.Request.Context(), s.osClient)
+		scrollResp.Inspect().Response.Body.Close()
+		return
 	}
+
+	// Initial search with scroll
+	searchBody := map[string]any{
+		"sort":   []map[string]any{{"indexedAt": "desc"}},
+		"scroll": "10m",
+	}
+	jsonBody, marshalErr := json.Marshal(searchBody)
+	if marshalErr != nil {
+		log.Errorf("unable to marshal search body: %v", marshalErr)
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+	searchResp, err = s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
+		Indices: []string{s.osIndex},
+		Body:    bytes.NewReader(jsonBody),
+	})
 	if err != nil {
-		log.Errorf("unable to get documents (scroll=%v): %v", scrollId != "", err)
+		log.Errorf("unable to get documents: %v", err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	if res.IsError() {
-		log.Warnf("unable to get documents (scroll=%v): %s", scrollId != "", res.Status())
+	if searchResp.Inspect().Response.StatusCode >= 400 {
+		log.Warnf("unable to get documents: %s", searchResp.Inspect().Response.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	var docs struct {
-		Hits struct {
-			Hits []Document[models.Document] `json:"hits"`
-		} `json:"hits"`
-		ScrollId string `json:"_scroll_id"`
-	}
-	err = json.NewDecoder(res.Body).Decode(&docs)
+	c.Status(http.StatusOK)
+	c.Header("Content-Type", "application/json")
+	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
 	if err != nil {
-		log.Errorf("unable to decode documents response (scroll=%v): %v", scrollId != "", err)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
+		log.Errorf("unable to stream documents response: %v", err)
 	}
-
-	c.JSON(http.StatusOK, docs)
+	searchResp.Inspect().Response.Body.Close()
 }
 
 func (s *Server) pingOs(ctx context.Context) error {
-	req := opensearchapi.PingRequest{}
-	res, err := req.Do(ctx, s.osClient)
+	res, err := s.osClient.Ping(ctx, &opensearchapi.PingReq{})
 	if err != nil {
 		return fmt.Errorf("ping OpenSearch: %w", err)
 	}
-	if res.IsError() {
+	if res.StatusCode >= 400 {
 		return fmt.Errorf("ping OpenSearch returned %s", res.Status())
 	}
 	return nil
 }
 
 func (s *Server) verifyIndex(ctx context.Context, index string) error {
-	req := opensearchapi.CatIndicesRequest{Index: []string{index}}
-	res, err := req.Do(ctx, s.osClient)
+	resp, err := s.osClient.Cat.Indices(ctx, &opensearchapi.CatIndicesReq{Indices: []string{index}})
 	if err != nil {
 		return fmt.Errorf("list index %s: %w", index, err)
 	}
 
-	if res.IsError() {
-		return fmt.Errorf("unable to verify index %s: %s", index, res.Status())
+	if resp.Inspect().Response.StatusCode >= 400 {
+		return fmt.Errorf("unable to verify index %s: %s", index, resp.Inspect().Response.Status())
 	}
 	return nil
 }

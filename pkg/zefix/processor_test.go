@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/opensearch-project/opensearch-go/v4"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 
 	"github.com/denysvitali/odi/pkg/zefix"
 )
@@ -23,20 +24,22 @@ func getClient(t *testing.T) *zefix.Processor {
 	return p
 }
 
-func getOpenSearchClient(t *testing.T) *opensearch.Client {
+func getOpenSearchClient(t *testing.T) *opensearchapi.Client {
 	opensearchAddr := os.Getenv("OPENSEARCH_ADDR")
 	if opensearchAddr == "" {
 		t.Skip("OPENSEARCH_ADDR not set, skipping test")
 	}
-	cfg := opensearch.Config{
-		Addresses: []string{opensearchAddr},
-		Username:  os.Getenv("OPENSEARCH_USERNAME"),
-		Password:  os.Getenv("OPENSEARCH_PASSWORD"),
+	cfg := opensearchapi.Config{
+		Client: opensearch.Config{
+			Addresses: []string{opensearchAddr},
+			Username:  os.Getenv("OPENSEARCH_USERNAME"),
+			Password:  os.Getenv("OPENSEARCH_PASSWORD"),
+		},
 	}
 	if os.Getenv("OPENSEARCH_SKIP_TLS") == "true" {
-		cfg.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		cfg.Client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	}
-	osClient, err := opensearch.NewClient(cfg)
+	osClient, err := opensearchapi.NewClient(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,7 +35,7 @@ type Indexer struct {
 	ocrAPICaPath                 string
 	zefixDsn                     string
 
-	opensearchClient *opensearch.Client
+	opensearchClient *opensearchapi.Client
 	ocrClient        *ocrclient.Client
 	zefixProcessor   *zefix.Processor
 
@@ -84,14 +84,13 @@ func (i *Indexer) PingOcrApi() (bool, error) {
 	return i.ocrClient.Healthz()
 }
 
-func (i *Indexer) PingOpensearch(ctx context.Context) (*opensearchapi.Response, error) {
+func (i *Indexer) PingOpensearch(ctx context.Context) (*opensearch.Response, error) {
 	err := i.ensureOpensearchClient()
 	if err != nil {
 		return nil, fmt.Errorf("ensure opensearch client: %w", err)
 	}
 
-	req := opensearchapi.PingRequest{}
-	return req.Do(ctx, i.opensearchClient)
+	return i.opensearchClient.Ping(ctx, &opensearchapi.PingReq{})
 }
 
 func (i *Indexer) ensureOpensearchClient() error {
@@ -100,13 +99,15 @@ func (i *Indexer) ensureOpensearchClient() error {
 	}
 
 	var err error
-	i.opensearchClient, err = opensearch.NewClient(opensearch.Config{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: i.opensearchInsecureSkipVerify},
+	i.opensearchClient, err = opensearchapi.NewClient(opensearchapi.Config{
+		Client: opensearch.Config{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: i.opensearchInsecureSkipVerify},
+			},
+			Addresses: []string{i.opensearchAddr},
+			Username:  i.opensearchUsername,
+			Password:  i.opensearchPassword,
 		},
-		Addresses: []string{i.opensearchAddr},
-		Username:  i.opensearchUsername,
-		Password:  i.opensearchPassword,
 	})
 	if err != nil {
 		return fmt.Errorf("create opensearch client: %w", err)
@@ -239,20 +240,18 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 
 	log.Debugf("indexing %s", page.ID())
 
-	req := opensearchapi.IndexRequest{
+	indexResp, err := i.opensearchClient.Index(ctx, opensearchapi.IndexReq{
 		Index:      i.documentsIndex,
 		DocumentID: page.ID(),
 		Body:       jsonBuffer,
-		OpType:     "index",
-	}
-	res, err := req.Do(ctx, i.opensearchClient)
+	})
 	if err != nil {
 		return fmt.Errorf("index document: %w", err)
 	}
 
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		errorMessage := decodeError(res.Body)
-		return fmt.Errorf("opensearch returned an invalid status %s: %s", res.Status(), errorMessage)
+	if indexResp.Inspect().Response.StatusCode < 200 || indexResp.Inspect().Response.StatusCode > 299 {
+		errorMessage := decodeError(indexResp.Inspect().Response.Body)
+		return fmt.Errorf("opensearch returned an invalid status %s: %s", indexResp.Inspect().Response.Status(), errorMessage)
 	}
 	log.Debugf("indexed %s", page.ID())
 	return nil
@@ -315,17 +314,16 @@ func (i *Indexer) getText(result *ocrclient.OcrResult) string {
 }
 
 func (i *Indexer) createOpensearchIndex(ctx context.Context) error {
-	req := opensearchapi.IndicesCreateRequest{Index: i.documentsIndex}
-	res, err := req.Do(ctx, i.opensearchClient)
+	resp, err := i.opensearchClient.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: i.documentsIndex})
 	if err != nil {
 		return fmt.Errorf("create index: %w", err)
 	}
-	if res.StatusCode == http.StatusBadRequest {
+	if resp.Inspect().Response.StatusCode == http.StatusBadRequest {
 		// Index already exists
 		return nil
 	}
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %s", res.Status())
+	if resp.Inspect().Response.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
 	}
 
 	return nil

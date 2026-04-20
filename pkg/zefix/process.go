@@ -1,15 +1,13 @@
 package zefix
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
 
-	"github.com/opensearch-project/opensearch-go/v4"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"github.com/sirupsen/logrus"
 
@@ -37,35 +35,37 @@ func New(zefixDsn string) (*Processor, error) {
 	return &p, nil
 }
 
-func (p *Processor) ProcessFromOpenSearch(ctx context.Context, osClient *opensearch.Client, index string) error {
+func (p *Processor) ProcessFromOpenSearch(ctx context.Context, osClient *opensearchapi.Client, index string) error {
 	// Go through all the documents in the index and update them
 	// by adding some new fields
 
 	// 1. Get all the documents from the index
 	size := 1000
-	req := opensearchapi.SearchRequest{
-		Index: []string{index},
-		Sort:  []string{"date:asc"},
-		Size:  &size,
+	searchBody := map[string]interface{}{
+		"sort": []map[string]string{{"date": "asc"}},
+		"size": size,
 	}
-
-	res, err := req.Do(ctx, osClient)
+	jsonBody, err := json.Marshal(searchBody)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal search body: %w", err)
 	}
-	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", res.StatusCode)
+	searchResp, err := osClient.Search(ctx, &opensearchapi.SearchReq{
+		Indices: []string{index},
+		Body:    bytes.NewReader(jsonBody),
+	})
+	if err != nil {
+		return fmt.Errorf("search request: %w", err)
 	}
 
 	// Parse response as JSON
 	var result OpensearchResult[models.Document]
-	dec := json.NewDecoder(res.Body)
+	dec := json.NewDecoder(searchResp.Inspect().Response.Body)
 	err = dec.Decode(&result)
 	if err != nil {
-		return err
+		return fmt.Errorf("decode search response: %w", err)
 	}
+	searchResp.Inspect().Response.Body.Close()
 
 	// 2. Iterate over the documents
 	for _, hit := range result.Hits.Hits {
@@ -76,25 +76,15 @@ func (p *Processor) ProcessFromOpenSearch(ctx context.Context, osClient *opensea
 		}
 
 		// 3. Update the document
-		req := opensearchapi.IndexRequest{
+		indexResp, err := osClient.Index(ctx, opensearchapi.IndexReq{
 			Index:      index,
 			DocumentID: hit.ID,
 			Body:       strings.NewReader(string(newSourceBytes)),
-		}
-
-		res, err = req.Do(ctx, osClient)
+		})
 		if err != nil {
-			return err
+			return fmt.Errorf("index request: %w", err)
 		}
-
-		if res.StatusCode != http.StatusOK {
-			// Get the error from body
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-			return fmt.Errorf("unexpected status code: %d, %s", res.StatusCode, string(body))
-		}
+		indexResp.Inspect().Response.Body.Close()
 	}
 
 	return nil
