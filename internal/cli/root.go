@@ -50,7 +50,6 @@ func init() {
 	rootCmd.AddCommand(pdfCmd)
 	rootCmd.AddCommand(reindexCmd)
 	rootCmd.AddCommand(ocrCmd)
-	rootCmd.AddCommand(ocrTextCmd)
 	rootCmd.AddCommand(decryptCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(zefixImportCmd)
@@ -73,9 +72,31 @@ func initConfig() {
 		"STORAGE_TYPE", "B2_ACCOUNT", "B2_KEY", "B2_BUCKET_NAME", "B2_PASSPHRASE",
 		"FS_PATH", "OCR_API_ADDR", "OCR_API_CA_PATH", "ZEFIX_DSN",
 		"LOG_LEVEL", "SCANNER_NAME", "SOURCE", "PASSPHRASE",
+		"BACKEND", "BACKEND_URL", "BACKEND_TOKEN",
 	} {
 		if val := os.Getenv(envVar); val != "" {
 			viper.SetDefault(strings.ToLower(strings.ReplaceAll(envVar, "_", "-")), val)
+		}
+	}
+
+	// Load config file. We can't bind --config via BindPFlag here because the
+	// persistent flag is parsed after OnInitialize runs, so we look up the
+	// raw flag value from os.Args / env ODI_CONFIG.
+	explicit := os.Getenv("ODI_CONFIG")
+	for i, a := range os.Args {
+		if a == "--config" && i+1 < len(os.Args) {
+			explicit = os.Args[i+1]
+			break
+		}
+		if strings.HasPrefix(a, "--config=") {
+			explicit = strings.TrimPrefix(a, "--config=")
+			break
+		}
+	}
+	if err := loadConfigFile(explicit); err != nil {
+		// Fatal only for an explicitly requested file that failed to load.
+		if explicit != "" {
+			panic(err)
 		}
 	}
 }

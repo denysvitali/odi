@@ -14,7 +14,6 @@ import (
 	"github.com/stapelberg/airscan"
 	"github.com/stapelberg/airscan/preset"
 
-	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
@@ -27,6 +26,8 @@ const (
 	PageScanDelay = 100 * time.Millisecond
 )
 
+// Config configures a local ingestor (storage + in-process OCR/indexing).
+// For remote ingestion use NewWithBackend + NewRemoteBackend.
 type Config struct {
 	OcrAPIAddr         string
 	OpenSearchAddr     string
@@ -38,37 +39,29 @@ type Config struct {
 }
 
 type Ingestor struct {
-	idx     *indexer.Indexer
-	storage model.Storer
+	backend Backend
 }
 
+// New creates an Ingestor backed by a LocalBackend built from the given Config.
+// This preserves the historical constructor signature.
 func New(config Config) (*Ingestor, error) {
-	var opts []indexer.Option
-	if config.OpenSearchUsername != "" {
-		opts = append(opts, indexer.WithOpenSearchUsername(config.OpenSearchUsername))
-	}
-	if config.OpenSearchPassword != "" {
-		opts = append(opts, indexer.WithOpenSearchPassword(config.OpenSearchPassword))
-	}
-	if config.OpenSearchSkipTLS {
-		opts = append(opts, indexer.WithOpenSearchSkipTLS())
-	}
-	idx, err := indexer.New(
-		config.OpenSearchAddr, config.OcrAPIAddr, config.ZefixDsn,
-		opts...,
-	)
+	b, err := NewLocalBackend(config)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create indexer: %w", err)
+		return nil, err
 	}
-
-	ing := &Ingestor{idx: idx, storage: config.Storage}
-
-	// Check that everything works:
+	ing := NewWithBackend(b)
 	log.Debugf("Pinging services")
 	if err := ing.Ping(context.Background()); err != nil {
 		return nil, fmt.Errorf("unable to ping services: %w", err)
 	}
-	return ing, err
+	return ing, nil
+}
+
+// NewWithBackend creates an Ingestor that delegates page processing to the
+// supplied Backend. Ping is NOT called automatically — the caller should do
+// that explicitly if desired.
+func NewWithBackend(b Backend) *Ingestor {
+	return &Ingestor{backend: b}
 }
 
 func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, workers int) error {
@@ -115,6 +108,10 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	close(pageChan)
 	wg.Wait()
 
+	if err := i.backend.Flush(ctx); err != nil {
+		return fmt.Errorf("flush backend for scan %s: %w", scanID, err)
+	}
+
 	failed := failedPages.Load()
 	total := totalPages.Load()
 	if failed > 0 {
@@ -127,7 +124,8 @@ func (i *Ingestor) ScanPagesWithDefaultWorkers(ctx context.Context, scanner Docu
 	return i.ScanPages(ctx, scanner, DefaultWorkers)
 }
 
-// Ingest takes care of connecting to the specified scanner, processes the document via OCR and outputs that to OpenSearch
+// Ingest connects to the named AirScan scanner and streams every scanned
+// page through the configured Backend.
 func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string) error {
 	c := airscan.NewClient(scannerName)
 	settings := preset.GrayscaleA4ADF()
@@ -140,8 +138,7 @@ func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string
 	if err != nil {
 		return fmt.Errorf("unable to create scan job on scanner %q source %q: %w", scannerName, source, err)
 	}
-	err = i.ScanPages(ctx, job, DefaultWorkers)
-	if err != nil {
+	if err := i.ScanPages(ctx, job, DefaultWorkers); err != nil {
 		return fmt.Errorf("scan pages from scanner %q source %q: %w", scannerName, source, err)
 	}
 	return nil
@@ -150,70 +147,19 @@ func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string
 func (i *Ingestor) processPage(ctx context.Context, pageChan <-chan models.ScannedPage, wg *sync.WaitGroup, failedPages *atomic.Int64) {
 	defer wg.Done()
 	for page := range pageChan {
-		if err := i.processPageInner(ctx, page); err != nil {
+		if err := i.backend.ProcessPage(ctx, page); err != nil {
+			log.Errorf("unable to process page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
 			failedPages.Add(1)
 		}
 	}
 }
 
-func (i *Ingestor) processPageInner(ctx context.Context, page models.ScannedPage) error {
-	// Read all page data into a single buffer to avoid multiple copies
-	pageData, err := io.ReadAll(page.Reader)
-	if err != nil {
-		log.Errorf("unable to read page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
-		return fmt.Errorf("read page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-	}
-
-	// Store the page using the same byte slice (avoids double buffering)
-	err = i.storage.Store(ctx, models.ScannedPage{
-		Reader:     bytes.NewReader(pageData),
-		ScanID:     page.ScanID,
-		SequenceID: page.SequenceID,
-	})
-	if err != nil {
-		log.Errorf("unable to store page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
-		return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-	}
-
-	// Reuse the same byte slice for OCR/indexing
-	page.Reader = bytes.NewReader(pageData)
-	return i.ocrAndIndex(ctx, page)
-}
-
-func (i *Ingestor) ocrAndIndex(ctx context.Context, page models.ScannedPage) error {
-	log.Debugf("ingesting page %d of scan %q", page.SequenceID, page.ScanID)
-	err := i.idx.Index(ctx, page)
-	if err != nil {
-		log.Errorf("unable to index page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
-	}
-	return err
-}
-
-// Ping makes sure the two APIs (OCR and OpenSearch) are reachable
+// Ping checks the backend is reachable.
 func (i *Ingestor) Ping(ctx context.Context) error {
-	log.Debugf("Pinging OpenSearch")
-	res, err := i.idx.PingOpensearch(ctx)
-	if err != nil {
-		return fmt.Errorf("unable to ping OpenSearch: %w", err)
-	}
-	if res.IsError() {
-		return fmt.Errorf("unable to ping OpenSearch: %s", res.Status())
-	}
+	return i.backend.Ping(ctx)
+}
 
-	// Ping OCR
-	log.Debugf("Pinging OCR API")
-	h, err := i.idx.PingOcrApi()
-	if err != nil {
-		return fmt.Errorf("unable to ping OCR API: %w", err)
-	}
-	if !h {
-		return fmt.Errorf("OCR API is not healthy")
-	}
-
-	log.Debugf("Pinging Zefix")
-	err = i.idx.PingZefix()
-	if err != nil {
-		return fmt.Errorf("unable to ping Zefix: %w", err)
-	}
-	return nil
+// Close releases any resources held by the backend.
+func (i *Ingestor) Close() error {
+	return i.backend.Close()
 }

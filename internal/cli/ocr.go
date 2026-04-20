@@ -15,18 +15,23 @@ import (
 )
 
 const (
-	FlagInput      = "input"
-	FlagOutputMode = "output-mode"
+	FlagOutputMode         = "output-mode"
+	FlagFromJSON           = "from-json"
+	FlagMergeDistance      = "merge-distance"
+	FlagHorizontalDistance = "horizontal-distance"
 )
 
 var ocrCmd = &cobra.Command{
 	Use:   "ocr [input-file]",
-	Short: "Process an image through OCR",
+	Short: "Process an image through OCR, or convert OCR JSON output to text",
 	Long: `Process an image file through the OCR API.
 
 Output modes:
   - text: Plain text extracted from the image (default)
-  - json: Full OCR result including bounding boxes and barcodes`,
+  - json: Full OCR result including bounding boxes and barcodes
+
+If --from-json is set, the input-file is treated as a previously-captured
+OCR JSON result and converted to plain text without contacting the OCR API.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runOcr,
 }
@@ -34,21 +39,36 @@ Output modes:
 func init() {
 	ocrCmd.Flags().StringP(FlagOutputMode, "o", "text", "Output mode: text or json")
 	ocrCmd.Flags().BoolP(FlagDebug, "D", false, "Enable debug logging")
+	ocrCmd.Flags().Bool(FlagFromJSON, false, "Treat input-file as an OCR JSON result and emit plain text")
+	ocrCmd.Flags().Float64P(FlagMergeDistance, "m", ocrtext.DefaultMergeDistance, "Merge distance for text blocks")
+	ocrCmd.Flags().Float64(FlagHorizontalDistance, ocrtext.DefaultHorizontalDistance, "Horizontal distance for column detection")
 
 	AddOCRFlags(ocrCmd)
 }
 
 func runOcr(cmd *cobra.Command, args []string) error {
-	if GetString(cmd, FlagOcrAPIAddr) == "" {
-		return fmt.Errorf("required flag or env var not set: %s (env: OCR_API_ADDR)", FlagOcrAPIAddr)
-	}
-
-	log := logrus.StandardLogger()
 	inputPath := args[0]
-
 	debug := GetBool(cmd, FlagDebug)
+	log := logrus.StandardLogger()
 	if debug {
 		log.SetLevel(logrus.DebugLevel)
+	}
+
+	mergeDistance := GetFloat64(cmd, FlagMergeDistance)
+	horizontalDistance := GetFloat64(cmd, FlagHorizontalDistance)
+
+	if GetBool(cmd, FlagFromJSON) {
+		v, err := parseOcrJson(inputPath)
+		if err != nil {
+			ui.PrintErrorf("Failed to parse JSON: %v", err)
+			return err
+		}
+		fmt.Println(ocrtext.GetText(v, mergeDistance, horizontalDistance))
+		return nil
+	}
+
+	if GetString(cmd, FlagOcrAPIAddr) == "" {
+		return fmt.Errorf("required flag or env var not set: %s (env: OCR_API_ADDR)", FlagOcrAPIAddr)
 	}
 
 	c, err := ocrclient.New(GetString(cmd, FlagOcrAPIAddr))
@@ -57,8 +77,7 @@ func runOcr(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	caPath := GetString(cmd, FlagOcrCaPath)
-	if caPath != "" {
+	if caPath := GetString(cmd, FlagOcrCaPath); caPath != "" {
 		rt, err := caroundtripper.New(caPath)
 		if err != nil {
 			ui.PrintErrorf("Failed to create CA RoundTripper: %v", err)
@@ -80,19 +99,29 @@ func runOcr(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	outputMode := GetString(cmd, FlagOutputMode)
-	switch outputMode {
+	switch GetString(cmd, FlagOutputMode) {
 	case "json":
 		e := json.NewEncoder(os.Stdout)
 		e.SetIndent("", "  ")
-		err = e.Encode(res)
-		if err != nil {
+		if err := e.Encode(res); err != nil {
 			ui.PrintErrorf("Failed to encode JSON: %v", err)
 			return err
 		}
 	default:
-		fmt.Print(ocrtext.GetText(res, ocrtext.DefaultMergeDistance, ocrtext.DefaultHorizontalDistance))
+		fmt.Print(ocrtext.GetText(res, mergeDistance, horizontalDistance))
 	}
-
 	return nil
+}
+
+func parseOcrJson(file string) (*ocrclient.OcrResult, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	dec := json.NewDecoder(f)
+	var v ocrclient.OcrResult
+	err = dec.Decode(&v)
+	return &v, err
 }
