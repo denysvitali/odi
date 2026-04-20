@@ -339,5 +339,12 @@ func (i *Indexer) ensureZefixClient() error {
 }
 
 func (i *Indexer) PingZefix() error {
+	if i.zefixDsn == "" {
+		return nil
+	}
 	return i.zefixProcessor.Ping()
+}
+
+func (i *Indexer) IsZefixConfigured() bool {
+	return i.zefixDsn != ""
 }

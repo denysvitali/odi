@@ -64,7 +64,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	ocrAddr := GetString(cmd, FlagOcrAPIAddr)
 	zefixDsn := GetString(cmd, FlagZefixDsn)
-	if ocrAddr != "" && zefixDsn != "" {
+	if ocrAddr != "" {
 		opts := []indexer.Option{
 			indexer.WithOpenSearchUsername(GetString(cmd, FlagOsUsername)),
 			indexer.WithOpenSearchPassword(GetString(cmd, FlagOsPassword)),
@@ -84,10 +84,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 			ui.PrintWarningf("Failed to initialize indexer (upload will be unavailable): %v", err)
 		} else {
 			serverOpts = append(serverOpts, server.WithIndexer(idx))
-			ui.PrintSuccess("Indexer initialized — upload endpoint enabled")
+			if zefixDsn != "" {
+				ui.PrintSuccess("Indexer initialized — upload endpoint enabled (Zefix enabled)")
+			} else {
+				ui.PrintSuccess("Indexer initialized — upload endpoint enabled (Zefix disabled)")
+			}
 		}
 	} else {
-		ui.PrintWarning("OCR API address or Zefix DSN not set — upload endpoint will be unavailable")
+		ui.PrintWarning("OCR API address not set — upload endpoint will be unavailable")
 	}
 
 	listenAddr := GetString(cmd, FlagListenAddr)

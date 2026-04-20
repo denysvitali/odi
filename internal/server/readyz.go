@@ -45,7 +45,7 @@ func (s *Server) readinessReport(ctx context.Context) readyResponse {
 	// ingestion requires it.
 	indexerCheck := readyCheck{Name: "indexer", OK: s.indexer != nil}
 	if !indexerCheck.OK {
-		indexerCheck.Detail = "indexer not configured (OCR_API_ADDR/ZEFIX_DSN missing on the server) — upload endpoint is disabled"
+		indexerCheck.Detail = "indexer not configured (OCR_API_ADDR missing on the server) — upload endpoint is disabled"
 	}
 	checks = append(checks, indexerCheck)
 
@@ -61,12 +61,15 @@ func (s *Server) readinessReport(ctx context.Context) readyResponse {
 		}
 		checks = append(checks, ocrCheck)
 
-		zefixCheck := readyCheck{Name: "zefix", OK: true}
-		if err := s.indexer.PingZefix(); err != nil {
-			zefixCheck.OK = false
-			zefixCheck.Detail = err.Error()
+		// Zefix is optional — only check if it was configured
+		if s.indexer.IsZefixConfigured() {
+			zefixCheck := readyCheck{Name: "zefix", OK: true}
+			if err := s.indexer.PingZefix(); err != nil {
+				zefixCheck.OK = false
+				zefixCheck.Detail = err.Error()
+			}
+			checks = append(checks, zefixCheck)
 		}
-		checks = append(checks, zefixCheck)
 	}
 
 	ready := true

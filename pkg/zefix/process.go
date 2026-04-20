@@ -24,6 +24,9 @@ type Processor struct {
 }
 
 func New(zefixDsn string) (*Processor, error) {
+	if zefixDsn == "" {
+		return &Processor{}, nil
+	}
 	zefixClient, err := zefix.New(zefixDsn)
 	if err != nil {
 		return nil, err
@@ -116,6 +119,9 @@ func (p *Processor) processText(document models.Document) models.Document {
 var companyRegexp = regexp.MustCompile("(?i)([A-zü() -]+) (?:AG|GmbH|SA|Sagl)")
 
 func (p *Processor) FindCompanies(text string) []zefix.Company {
+	if p.zefixClient == nil {
+		return nil
+	}
 	companiesMap := make(map[string]zefix.Company)
 	res := companyRegexp.FindAllStringSubmatch(text, -1)
 	for _, company := range res {
@@ -149,6 +155,9 @@ func (p *Processor) FindCompanies(text string) []zefix.Company {
 }
 
 func (p *Processor) Ping() error {
+	if p.zefixClient == nil {
+		return nil
+	}
 	return p.zefixClient.Ping()
 }
 

@@ -112,7 +112,6 @@ func buildLocalBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 	for _, required := range []struct{ flag, env string }{
 		{FlagOsAddr, "OPENSEARCH_ADDR"},
 		{FlagOcrAPIAddr, "OCR_API_ADDR"},
-		{FlagZefixDsn, "ZEFIX_DSN"},
 		{FlagStorageType, "STORAGE_TYPE"},
 	} {
 		if GetString(cmd, required.flag) == "" {
