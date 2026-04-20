@@ -141,9 +141,24 @@ func (r *RemoteBackend) Flush(ctx context.Context) error {
 
 func (r *RemoteBackend) Close() error { return nil }
 
-// Ping verifies the remote server is reachable via /healthz.
+// ReadinessCheck is one line of the server's /readyz response.
+type ReadinessCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// ReadinessResponse is the full /readyz payload.
+type ReadinessResponse struct {
+	Ready  bool             `json:"ready"`
+	Checks []ReadinessCheck `json:"checks"`
+}
+
+// Ping verifies the remote server is ready to accept ingestion by calling
+// /readyz. A non-ready server (503) yields an error that names every failed
+// dependency so the operator knows what to fix.
 func (r *RemoteBackend) Ping(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/healthz", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+"/readyz", nil)
 	if err != nil {
 		return fmt.Errorf("remote backend: ping build request: %w", err)
 	}
@@ -155,8 +170,27 @@ func (r *RemoteBackend) Ping(ctx context.Context) error {
 		return fmt.Errorf("remote backend: ping: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("remote backend: ping: HTTP %d", resp.StatusCode)
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+
+	var ready ReadinessResponse
+	// The body may be empty or non-JSON on unexpected status codes.
+	_ = json.Unmarshal(body, &ready)
+
+	if resp.StatusCode == http.StatusOK && ready.Ready {
+		return nil
 	}
-	return nil
+
+	if len(ready.Checks) > 0 {
+		var failing []string
+		for _, ch := range ready.Checks {
+			if !ch.OK {
+				failing = append(failing, fmt.Sprintf("%s: %s", ch.Name, ch.Detail))
+			}
+		}
+		if len(failing) > 0 {
+			return fmt.Errorf("remote backend not ready (HTTP %d): %s", resp.StatusCode, strings.Join(failing, "; "))
+		}
+	}
+	return fmt.Errorf("remote backend not ready: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }

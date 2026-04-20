@@ -141,7 +141,7 @@ func (s *Server) handleHealthz(c *gin.Context) {
 
 func (s *Server) initRoutes() {
 	s.e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/healthz"},
+		SkipPaths: []string{"/healthz", "/readyz"},
 	}))
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
@@ -151,6 +151,7 @@ func (s *Server) initRoutes() {
 	}))
 
 	s.e.GET("/healthz", s.handleHealthz)
+	s.e.GET("/readyz", s.handleReadyz)
 
 	g := s.e.Group("/api/v1")
 	g.POST("/search", s.handleSearch)

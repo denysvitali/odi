@@ -78,12 +78,20 @@ func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
 	require.Equal(t, int32(1), requestCount.Load())
 }
 
-func TestRemoteBackend_Ping(t *testing.T) {
+func TestRemoteBackend_PingReady(t *testing.T) {
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/healthz", r.URL.Path)
+		require.Equal(t, "/readyz", r.URL.Path)
 		hit = true
-		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(ingestor.ReadinessResponse{
+			Ready: true,
+			Checks: []ingestor.ReadinessCheck{
+				{Name: "opensearch", OK: true},
+				{Name: "indexer", OK: true},
+				{Name: "ocr", OK: true},
+				{Name: "zefix", OK: true},
+			},
+		})
 	}))
 	defer srv.Close()
 
@@ -91,6 +99,28 @@ func TestRemoteBackend_Ping(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.Ping(context.Background()))
 	require.True(t, hit)
+}
+
+func TestRemoteBackend_PingNotReadyReportsFailedChecks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(ingestor.ReadinessResponse{
+			Ready: false,
+			Checks: []ingestor.ReadinessCheck{
+				{Name: "opensearch", OK: true},
+				{Name: "indexer", OK: false, Detail: "indexer not configured"},
+				{Name: "ocr", OK: false, Detail: "connection refused"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	b, err := ingestor.NewRemoteBackend(ingestor.RemoteBackendConfig{BaseURL: srv.URL})
+	require.NoError(t, err)
+	err = b.Ping(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "indexer: indexer not configured")
+	assert.Contains(t, err.Error(), "ocr: connection refused")
 }
 
 func TestRemoteBackend_FlushServerError(t *testing.T) {
