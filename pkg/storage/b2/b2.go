@@ -145,10 +145,20 @@ func (b *B2) StoreThumbnail(ctx context.Context, scanID string, sequenceId int, 
 
 	var readerToStore io.Reader = &buf
 	if b.crypt != nil {
-		readerToStore, err = b.crypt.Encrypt(&buf)
+		encryptedReader, err := b.crypt.Encrypt(&buf)
 		if err != nil {
 			return fmt.Errorf("encrypt thumbnail %s: %w", key, err)
 		}
+		encryptedSize, err := encryptedReader.Seek(0, io.SeekEnd)
+		if err != nil {
+			return fmt.Errorf("seek encrypted thumbnail %s: %w", key, err)
+		}
+		_, err = encryptedReader.Seek(0, io.SeekStart)
+		if err != nil {
+			return fmt.Errorf("rewind encrypted thumbnail %s: %w", key, err)
+		}
+		readerToStore = encryptedReader
+		fileSize = encryptedSize
 	}
 
 	obj, err := b.b2FS.Put(ctx, readerToStore, b.toThumbnailStorageFile(scanID, sequenceId, fileSize), &fs.RangeOption{Start: 0, End: fileSize})
