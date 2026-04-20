@@ -379,17 +379,20 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 		}
 
 		// Return thumbnail
-		_, err = thumbReader.(io.ReadSeeker).Seek(0, io.SeekStart)
-		if err != nil {
-			// thumbReader might not be a ReadSeeker
-			c.Header("Content-Type", "image/jpeg")
-			c.Status(http.StatusOK)
-			_, err = io.Copy(c.Writer, thumbReader)
+		c.Header("Content-Type", "image/jpeg")
+		c.Status(http.StatusOK)
+		if rs, ok := thumbReader.(io.ReadSeeker); ok {
+			_, err = rs.Seek(0, io.SeekStart)
 			if err != nil {
-				log.Errorf("unable to stream generated thumbnail: %v", err)
+				log.Errorf("error seeking generated thumbnail: %v", err)
+				return
 			}
-			return
 		}
+		_, err = io.Copy(c.Writer, thumbReader)
+		if err != nil {
+			log.Errorf("unable to stream generated thumbnail: %v", err)
+		}
+		return
 
 		c.Header("Content-Type", "image/jpeg")
 		c.Status(http.StatusOK)
