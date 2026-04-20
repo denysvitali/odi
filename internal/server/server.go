@@ -177,9 +177,12 @@ func (s *Server) handleSearch(c *gin.Context) {
 	}
 
 	if searchRequest.ScrollId != "" {
-		// Continue pagination using scroll
+		// Continue pagination using scroll (extend TTL to keep context alive)
 		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
 			ScrollID: searchRequest.ScrollId,
+			Params: opensearchapi.ScrollGetParams{
+				Scroll: 10 * time.Minute,
+			},
 		})
 		if err != nil {
 			log.Errorf("unable to perform scroll (scrollId=%q): %v", searchRequest.ScrollId, err)
@@ -457,9 +460,12 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	var err error
 
 	if scrollId != "" {
-		// Continue scroll
+		// Continue scroll (extend TTL so paging stays alive across many loads)
 		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
 			ScrollID: scrollId,
+			Params: opensearchapi.ScrollGetParams{
+				Scroll: 10 * time.Minute,
+			},
 		})
 		if err != nil {
 			log.Errorf("unable to get documents (scroll): %v", err)
@@ -482,7 +488,14 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	}
 
 	// Initial search with scroll
+	size := 50
+	if sizeStr := c.Query("size"); sizeStr != "" {
+		if parsed, parseErr := strconv.Atoi(sizeStr); parseErr == nil && parsed > 0 {
+			size = parsed
+		}
+	}
 	searchBody := map[string]any{
+		"size": size,
 		"sort": []map[string]any{{"indexedAt": "desc"}},
 	}
 	jsonBody, marshalErr := json.Marshal(searchBody)
