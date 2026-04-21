@@ -38,7 +38,7 @@ export interface Barcode {
 export interface InnerDocument {
   text: string
   company?: Company
-  primaryDate?: string
+  date?: string
   indexedAt?: string
 }
 

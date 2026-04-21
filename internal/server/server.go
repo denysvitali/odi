@@ -501,9 +501,42 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 			size = parsed
 		}
 	}
+
+	var dateFrom, dateTo *time.Time
+	if dateFromStr := c.Query("date_from"); dateFromStr != "" {
+		if t, err := time.Parse("2006-01-02", dateFromStr); err == nil {
+			dateFrom = &t
+		}
+	}
+	if dateToStr := c.Query("date_to"); dateToStr != "" {
+		if t, err := time.Parse("2006-01-02", dateToStr); err == nil {
+			endOfDay := t.Add(24*time.Hour - time.Second)
+			dateTo = &endOfDay
+		}
+	}
+
+	hasDateFilter := dateFrom != nil || dateTo != nil
+
 	searchBody := map[string]any{
 		"size": size,
 		"sort": []map[string]any{{"indexedAt": "desc"}},
+	}
+
+	if hasDateFilter {
+		var filters []map[string]any
+		if dateFrom != nil {
+			filters = append(filters, map[string]any{
+				"range": map[string]any{"date": map[string]any{"gte": dateFrom.Format(time.RFC3339)}},
+			})
+		}
+		if dateTo != nil {
+			filters = append(filters, map[string]any{
+				"range": map[string]any{"date": map[string]any{"lte": dateTo.Format(time.RFC3339)}},
+			})
+		}
+		searchBody["query"] = map[string]any{
+			"bool": map[string]any{"filter": filters},
+		}
 	}
 	jsonBody, marshalErr := json.Marshal(searchBody)
 	if marshalErr != nil {

@@ -57,10 +57,12 @@ const detailsCache = new Map<string, DocumentDetails>()
 const detailsInflight = new Map<string, Promise<DocumentDetails>>()
 
 export const api = {
-  listDocuments(params: { size?: number; scrollId?: string } = {}): Promise<SearchResult<Document>> {
+  listDocuments(params: { size?: number; scrollId?: string; dateFrom?: string; dateTo?: string } = {}): Promise<SearchResult<Document>> {
     const qs = new URLSearchParams()
     if (params.size) qs.set('size', String(params.size))
     if (params.scrollId) qs.set('scroll_id', params.scrollId)
+    if (params.dateFrom) qs.set('date_from', params.dateFrom)
+    if (params.dateTo) qs.set('date_to', params.dateTo)
     return request(`/documents?${qs.toString()}`)
   },
 

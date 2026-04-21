@@ -23,23 +23,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   const pageSize = ref(initialPageSize)
   const dateRange = ref<DateRange | null>(null)
 
-  const filteredDocuments = computed(() => {
-    if (!dateRange.value) return documents.value
-
-    const { from, to } = dateRange.value
-    const fromDate = from ? new Date(from) : null
-    const toDate = to ? new Date(to + 'T23:59:59') : null
-
-    return documents.value.filter((doc) => {
-      const docDate = doc._source?.primaryDate || doc._source?.indexedAt
-      if (!docDate) return true
-
-      const docDateObj = new Date(docDate)
-      if (fromDate && docDateObj < fromDate) return false
-      if (toDate && docDateObj > toDate) return false
-      return true
-    })
-  })
+  const filteredDocuments = computed(() => documents.value)
 
   const filteredTotal = computed(() => filteredDocuments.value.length)
 
@@ -53,7 +37,11 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
     loading.value = true
     error.value = null
     try {
-      const data = await api.listDocuments({ size: pageSize.value })
+      const data = await api.listDocuments({
+        size: pageSize.value,
+        dateFrom: dateRange.value?.from,
+        dateTo: dateRange.value?.to
+      })
       if (data.hits) {
         documents.value = data.hits.hits
         total.value = data.hits.total?.value || 0

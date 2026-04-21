@@ -89,7 +89,7 @@ const exportCSV = () => {
     .map((d) => ({
       id: d._id,
       company: d._source.company?.name || '',
-      primaryDate: d._source.primaryDate || '',
+      primaryDate: d._source.date || '',
       indexedAt: d._source.indexedAt || ''
     }))
   const header = Object.keys(rows[0] || { id: '', company: '', primaryDate: '', indexedAt: '' })
