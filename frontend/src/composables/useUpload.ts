@@ -1,4 +1,5 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+import { getApiUrl } from '@/lib/config'
 
 export interface UploadPageResult {
   sequenceID: number
@@ -13,13 +14,52 @@ export interface UploadResult {
   pages: UploadPageResult[]
 }
 
+const MAX_ATTEMPTS = 3
+
 export function useUpload() {
   const uploading = ref(false)
   const progress = ref(0)
   const result = ref<UploadResult | null>(null)
   const error = ref<string | null>(null)
+  const attempt = ref(0)
+  let currentXhr: XMLHttpRequest | null = null
 
-  const apiUrl = computed(() => window._settings?.apiUrl || '')
+  const attemptOnce = (files: File[]) =>
+    new Promise<UploadResult>((resolve, reject) => {
+      const formData = new FormData()
+      for (const file of files) formData.append('files', file)
+
+      const xhr = new XMLHttpRequest()
+      currentXhr = xhr
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          progress.value = Math.round((e.loaded / e.total) * 100)
+        }
+      })
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText) as UploadResult)
+          } catch (e) {
+            reject(new Error('Invalid response'))
+          }
+        } else {
+          let msg = `Upload failed (${xhr.status})`
+          try {
+            const body = JSON.parse(xhr.responseText)
+            if (body.error) msg = body.error
+          } catch {}
+          const err = new Error(msg) as Error & { status?: number }
+          err.status = xhr.status
+          reject(err)
+        }
+      })
+      xhr.addEventListener('error', () => reject(new Error('Network error')))
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
+      xhr.open('POST', `${getApiUrl()}/upload`)
+      xhr.send(formData)
+    })
 
   const upload = async (files: File[]) => {
     if (uploading.value) return
@@ -29,53 +69,36 @@ export function useUpload() {
     progress.value = 0
     result.value = null
     error.value = null
+    attempt.value = 0
 
-    const formData = new FormData()
-    for (const file of files) {
-      formData.append('files', file)
-    }
-
-    return new Promise<UploadResult>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          progress.value = Math.round((e.loaded / e.total) * 100)
-        }
-      })
-
-      xhr.addEventListener('load', () => {
-        uploading.value = false
-        if (xhr.status >= 200 && xhr.status < 300) {
-          const data: UploadResult = JSON.parse(xhr.responseText)
+    try {
+      while (attempt.value < MAX_ATTEMPTS) {
+        attempt.value += 1
+        try {
+          const data = await attemptOnce(files)
           result.value = data
-          resolve(data)
-        } else {
-          let msg = `Upload failed (${xhr.status})`
-          try {
-            const body = JSON.parse(xhr.responseText)
-            if (body.error) msg = body.error
-          } catch {}
-          error.value = msg
-          reject(new Error(msg))
+          return data
+        } catch (e) {
+          const err = e as Error & { status?: number }
+          const status = err.status ?? 0
+          const retryable = status === 0 || status >= 500
+          if (!retryable || attempt.value >= MAX_ATTEMPTS) {
+            error.value = err.message
+            throw err
+          }
+          await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt.value - 1)))
         }
-      })
+      }
+    } finally {
+      uploading.value = false
+      currentXhr = null
+    }
+  }
 
-      xhr.addEventListener('error', () => {
-        uploading.value = false
-        error.value = 'Network error'
-        reject(new Error('Network error'))
-      })
-
-      xhr.addEventListener('abort', () => {
-        uploading.value = false
-        error.value = 'Upload aborted'
-        reject(new Error('Upload aborted'))
-      })
-
-      xhr.open('POST', `${apiUrl.value}/upload`)
-      xhr.send(formData)
-    })
+  const abort = () => {
+    currentXhr?.abort()
+    currentXhr = null
+    uploading.value = false
   }
 
   const reset = () => {
@@ -83,6 +106,7 @@ export function useUpload() {
     progress.value = 0
     result.value = null
     error.value = null
+    attempt.value = 0
   }
 
   return {
@@ -90,7 +114,9 @@ export function useUpload() {
     progress,
     result,
     error,
+    attempt,
     upload,
+    abort,
     reset
   }
 }

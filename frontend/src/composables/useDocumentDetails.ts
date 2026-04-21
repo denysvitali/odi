@@ -1,4 +1,5 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+import { api, ApiError } from '@/api/client'
 import type { DocumentDetails } from '@/types/documents'
 
 export function useDocumentDetails() {
@@ -6,28 +7,15 @@ export function useDocumentDetails() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const apiUrl = computed(() => window._settings?.apiUrl || '')
-
-  const fetchDetails = async (documentId: string) => {
+  const fetchDetails = async (documentId: string, { skipCache = false } = {}) => {
     if (loading.value) return
-
     loading.value = true
     error.value = null
     details.value = null
-
     try {
-      const url = `${apiUrl.value}/documents/${encodeURIComponent(documentId)}`
-      const response = await fetch(url)
-
-      if (!response.ok) {
-        throw new Error(`Failed to load document details: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-      details.value = data
+      details.value = await api.getDocumentDetails(documentId, { skipCache })
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Failed to load document details'
-      console.error('Error loading document details:', err)
+      error.value = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to load document details'
     } finally {
       loading.value = false
     }

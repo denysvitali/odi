@@ -1,5 +1,6 @@
-import { ref, computed } from 'vue'
-import type { Document, SearchResult } from '@/types/documents'
+import { ref } from 'vue'
+import { api, ApiError } from '@/api/client'
+import type { Document } from '@/types/documents'
 
 export interface UseSearchOptions {
   debounceMs?: number
@@ -15,24 +16,17 @@ export function useSearch(options: UseSearchOptions = {}) {
   const error = ref<string | null>(null)
   const total = ref<number>(0)
   const scrollId = ref<string | null>(null)
-
   const hasSearched = ref(false)
-
-  const apiUrl = computed(() => window._settings?.apiUrl || '')
 
   let debounceTimeout: ReturnType<typeof setTimeout> | null = null
 
   const search = async (term: string) => {
-    // Clear any pending debounced search
     if (debounceTimeout) {
       clearTimeout(debounceTimeout)
       debounceTimeout = null
     }
-
-    // Update search term
     searchTerm.value = term
 
-    // Clear results if empty search
     if (!term.trim()) {
       results.value = []
       total.value = 0
@@ -45,18 +39,7 @@ export function useSearch(options: UseSearchOptions = {}) {
     hasSearched.value = true
 
     try {
-      const response = await fetch(`${apiUrl.value}/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ searchTerm: term, size: pageSize })
-      })
-
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`)
-      }
-
-      const data: SearchResult<Document> = await response.json()
-
+      const data = await api.search({ searchTerm: term, size: pageSize })
       if (data.hits) {
         results.value = data.hits.hits
         total.value = data.hits.total?.value || 0
@@ -66,7 +49,7 @@ export function useSearch(options: UseSearchOptions = {}) {
         total.value = 0
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Search failed'
+      error.value = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Search failed'
       results.value = []
       total.value = 0
     } finally {
@@ -75,33 +58,15 @@ export function useSearch(options: UseSearchOptions = {}) {
   }
 
   const debouncedSearch = (term: string) => {
-    if (debounceTimeout) {
-      clearTimeout(debounceTimeout)
-    }
-
-    debounceTimeout = setTimeout(() => {
-      search(term)
-    }, debounceMs)
+    if (debounceTimeout) clearTimeout(debounceTimeout)
+    debounceTimeout = setTimeout(() => search(term), debounceMs)
   }
 
   const loadMore = async () => {
     if (!scrollId.value || !searchTerm.value) return
-
     loading.value = true
-
     try {
-      const response = await fetch(`${apiUrl.value}/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scrollId: scrollId.value })
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to load more results: ${response.statusText}`)
-      }
-
-      const data: SearchResult<Document> = await response.json()
-
+      const data = await api.search({ scrollId: scrollId.value })
       if (data.hits?.hits) {
         results.value.push(...data.hits.hits)
         scrollId.value = data._scroll_id || null
