@@ -1,6 +1,7 @@
 package ocrclient_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,7 +49,7 @@ func TestClient(t *testing.T) {
 
 	f := getFile(t, "../../resources/receipt-1.jpg")
 	defer f.Close()
-	ocrResult, err := c.Process(f)
+	ocrResult, err := c.Process(context.Background(), f)
 	if err != nil {
 		t.Fatalf("unable to perform OCR: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestClientPrivate(t *testing.T) {
 
 	inputFile := getFile(t, "../../resources/receipt-1.jpg")
 	defer inputFile.Close()
-	ocrResult, err := c.Process(inputFile)
+	ocrResult, err := c.Process(context.Background(), inputFile)
 	if err != nil {
 		t.Fatalf("unable to perform OCR: %v", err)
 	}

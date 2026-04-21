@@ -93,7 +93,7 @@ func runOcr(cmd *cobra.Command, args []string) error {
 	}
 	defer f.Close()
 
-	res, err := c.Process(f)
+	res, err := c.Process(cmd.Context(), f)
 	if err != nil {
 		ui.PrintErrorf("OCR processing failed: %v", err)
 		return err

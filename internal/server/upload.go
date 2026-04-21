@@ -26,7 +26,10 @@ type uploadResponse struct {
 	Pages     []uploadPageResult `json:"pages"`
 }
 
-const maxUploadSize = 200 << 20 // 200 MB total
+const (
+	maxUploadSize    = 200 << 20 // 200 MB total
+	uploadMaxWorkers = 8         // cap per-upload in-flight file processing
+)
 
 func (s *Server) handleUpload(c *gin.Context) {
 	if s.indexer == nil {
@@ -57,10 +60,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	sem := make(chan struct{}, uploadMaxWorkers)
+
 	for i, fh := range files {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(idx int, fileHeader *multipart.FileHeader) {
 			defer wg.Done()
+			defer func() { <-sem }()
 
 			result := uploadPageResult{
 				SequenceID: idx + 1,

@@ -186,7 +186,7 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 	}
 
 	log.Debugf("processing %s via OCR client", page.ID())
-	ocrResult, err := i.ocrClient.Process(page.Reader)
+	ocrResult, err := i.ocrClient.Process(ctx, page.Reader)
 	if err != nil {
 		return fmt.Errorf("ocr client failed: %w", err)
 	}
