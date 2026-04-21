@@ -38,6 +38,8 @@ export interface Barcode {
 export interface InnerDocument {
   text: string
   company?: Company
+  primaryDate?: string
+  indexedAt?: string
 }
 
 export interface Highlight {

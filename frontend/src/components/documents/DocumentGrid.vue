@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import DocumentCard from './DocumentCard.vue'
 import DocumentSkeleton from './DocumentSkeleton.vue'
 import type { Document } from '@/types/documents'
@@ -13,7 +13,7 @@ interface Props {
   hasMore?: boolean
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   loadMore: []
@@ -24,6 +24,79 @@ const gridRef = ref<HTMLElement>()
 
 // Show 6 skeleton items when loading
 const skeletonCount = 6
+
+// Keyboard navigation state
+const focusedIndex = ref(-1)
+
+const totalColumns = computed(() => {
+  if (typeof window === 'undefined') return 4
+  const grid = gridRef.value?.querySelector('.grid')
+  if (!grid) return 4
+  const style = window.getComputedStyle(grid)
+  return style.gridTemplateColumns.split(' ').length || 4
+})
+
+const handleKeyDown = (event: KeyboardEvent) => {
+  const docs = props.documents
+  if (docs.length === 0) return
+
+  switch (event.key) {
+    case 'ArrowRight': {
+      event.preventDefault()
+      if (focusedIndex.value < docs.length - 1) {
+        focusedIndex.value++
+      } else {
+        focusedIndex.value = 0
+      }
+      break
+    }
+    case 'ArrowLeft': {
+      event.preventDefault()
+      if (focusedIndex.value > 0) {
+        focusedIndex.value--
+      } else {
+        focusedIndex.value = docs.length - 1
+      }
+      break
+    }
+    case 'ArrowDown': {
+      event.preventDefault()
+      const newIndex = focusedIndex.value + totalColumns.value
+      if (newIndex < docs.length) {
+        focusedIndex.value = newIndex
+      }
+      break
+    }
+    case 'ArrowUp': {
+      event.preventDefault()
+      const newIndex = focusedIndex.value - totalColumns.value
+      if (newIndex >= 0) {
+        focusedIndex.value = newIndex
+      }
+      break
+    }
+    case 'Enter': {
+      event.preventDefault()
+      if (focusedIndex.value >= 0 && focusedIndex.value < docs.length) {
+        emit('selectDocument', docs[focusedIndex.value])
+      }
+      break
+    }
+    case 'Escape': {
+      event.preventDefault()
+      focusedIndex.value = -1
+      break
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+})
 </script>
 
 <template>
@@ -31,6 +104,7 @@ const skeletonCount = 6
     <!-- Document Grid -->
     <div
       class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+      tabindex="-1"
     >
       <template v-if="loading">
         <DocumentSkeleton
@@ -41,11 +115,12 @@ const skeletonCount = 6
 
       <template v-else>
         <DocumentCard
-          v-for="doc in documents"
+          v-for="(doc, index) in documents"
           :key="doc._id"
           :document="doc"
           :search-term="searchTerm"
           :opensearch-url="opensearchUrl"
+          :focused="index === focusedIndex"
           v-motion="{
             initial: { opacity: 0, y: 20 },
             enter: { opacity: 1, y: 0 }

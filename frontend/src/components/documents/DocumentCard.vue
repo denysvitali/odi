@@ -11,6 +11,7 @@ interface Props {
   document: Document
   searchTerm?: string
   opensearchUrl?: string
+  focused?: boolean
 }
 
 const props = defineProps<Props>()
@@ -73,7 +74,14 @@ const handleCardClick = () => {
 </script>
 
 <template>
-  <Card class="group overflow-hidden hover-lift cursor-pointer border-border/50" @click="handleCardClick">
+  <Card
+    class="group overflow-hidden hover-lift cursor-pointer border-border/50 transition-all duration-200 hover:border-primary/40 hover:scale-[1.02] hover:shadow-lg"
+    :class="[
+      focused ? 'ring-2 ring-ring ring-offset-2 ring-offset-background shadow-lg' : '',
+    ]"
+    tabindex="0"
+    @click="handleCardClick"
+  >
     <!-- Thumbnail -->
     <div class="relative aspect-[3/4] overflow-hidden bg-muted">
       <img

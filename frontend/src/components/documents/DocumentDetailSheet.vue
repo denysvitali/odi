@@ -78,11 +78,11 @@ const hasBarcodes = computed(() => {
   return details.value?.barcodes && details.value.barcodes.length > 0
 })
 
-// Fetch details when document changes
-watch(() => props.document, (newDoc) => {
-  if (newDoc) {
+// Fetch details when document changes or when sheet opens
+watch([() => props.document, () => props.open], ([newDoc, isOpen]) => {
+  if (isOpen && newDoc) {
     fetchDetails(newDoc._id)
-  } else {
+  } else if (!isOpen) {
     clearDetails()
   }
 }, { immediate: true })

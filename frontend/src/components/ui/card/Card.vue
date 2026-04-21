@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 
 interface Props {
-  class?: string
+  class?: HTMLAttributes['class']
 }
 
 const props = defineProps<Props>()

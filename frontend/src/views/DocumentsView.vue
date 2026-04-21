@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { RefreshCw } from 'lucide-vue-next'
+import { ref, computed, onMounted } from 'vue'
+import { RefreshCw, Search, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import DocumentGrid from '@/components/documents/DocumentGrid.vue'
 import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
@@ -16,6 +16,7 @@ const {
   error,
   total,
   hasMore,
+  dateRange,
   loadDocuments,
   loadMore,
   refresh
@@ -24,6 +25,30 @@ const {
 const opensearchUrl = ref('')
 const selectedDocument = ref<Document | null>(null)
 const sheetOpen = ref(false)
+const filtersOpen = ref(false)
+
+const dateFrom = ref('')
+const dateTo = ref('')
+
+const hasActiveFilters = computed(() => dateFrom.value || dateTo.value)
+
+const applyDateFilter = () => {
+  if (!dateFrom.value && !dateTo.value) {
+    dateRange.value = null
+  } else {
+    dateRange.value = {
+      from: dateFrom.value,
+      to: dateTo.value
+    }
+  }
+  filtersOpen.value = false
+}
+
+const clearFilters = () => {
+  dateFrom.value = ''
+  dateTo.value = ''
+  dateRange.value = null
+}
 
 const handleSelectDocument = (doc: Document) => {
   selectedDocument.value = doc

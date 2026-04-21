@@ -48,17 +48,44 @@ const classes = computed(() =>
   }
 }
 
-/* Dark mode adjustment */
+/* Light mode shimmer */
+@media (prefers-color-scheme: light) {
+  .skeleton-shimmer::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.4) 20%,
+      rgba(255, 255, 255, 0.6) 50%,
+      rgba(255, 255, 255, 0.4) 80%,
+      transparent 100%
+    );
+  }
+}
+
+/* Dark mode shimmer - uses subtle light overlay on dark background */
 @media (prefers-color-scheme: dark) {
   .skeleton-shimmer::after {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255, 255, 255, 0.05) 20%,
+      rgba(255, 255, 255, 0.04) 20%,
       rgba(255, 255, 255, 0.08) 50%,
-      rgba(255, 255, 255, 0.05) 80%,
+      rgba(255, 255, 255, 0.04) 80%,
       transparent 100%
     );
   }
+}
+
+/* Manual dark mode class override */
+:global(.dark) .skeleton-shimmer::after,
+.dark .skeleton-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 20%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 80%,
+    transparent 100%
+  );
 }
 </style>
