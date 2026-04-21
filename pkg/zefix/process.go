@@ -24,7 +24,7 @@ type Processor struct {
 }
 
 func New(zefixDsn string) (*Processor, error) {
-	if zefixDsn == "" || zefixDsn == "user=disabled database=disabled" {
+	if IsDisabledDSN(zefixDsn) {
 		return &Processor{}, nil
 	}
 	zefixClient, err := zefix.New(zefixDsn)
@@ -36,6 +36,11 @@ func New(zefixDsn string) (*Processor, error) {
 		zefixClient: zefixClient,
 	}
 	return &p, nil
+}
+
+func IsDisabledDSN(zefixDsn string) bool {
+	zefixDsn = strings.TrimSpace(zefixDsn)
+	return zefixDsn == "" || strings.Contains(zefixDsn, "user=disabled database=disabled")
 }
 
 func (p *Processor) ProcessFromOpenSearch(ctx context.Context, osClient *opensearchapi.Client, index string) error {

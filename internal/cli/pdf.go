@@ -65,6 +65,7 @@ func runPDF(cmd *cobra.Command, args []string) error {
 	opts := []indexer.Option{
 		indexer.WithOpenSearchUsername(GetString(cmd, FlagOsUsername)),
 		indexer.WithOpenSearchPassword(GetString(cmd, FlagOsPassword)),
+		indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)),
 		indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)),
 	}
 	if GetBool(cmd, FlagOsSkipTLS) {

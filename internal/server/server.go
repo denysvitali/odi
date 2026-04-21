@@ -544,13 +544,20 @@ func (s *Server) pingOs(ctx context.Context) error {
 }
 
 func (s *Server) verifyIndex(ctx context.Context, index string) error {
-	resp, err := s.osClient.Cat.Indices(ctx, &opensearchapi.CatIndicesReq{Indices: []string{index}})
+	resp, err := s.osClient.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{index}})
 	if err != nil {
-		return fmt.Errorf("list index %s: %w", index, err)
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("index or alias %s not found", index)
+		}
+		return fmt.Errorf("check index or alias %s: %w", index, err)
 	}
+	defer resp.Body.Close()
 
-	if resp.Inspect().Response.StatusCode >= 400 {
-		return fmt.Errorf("unable to verify index %s: %s", index, resp.Inspect().Response.Status())
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("index or alias %s not found", index)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("unable to verify index or alias %s: %s", index, resp.Status())
 	}
 	return nil
 }

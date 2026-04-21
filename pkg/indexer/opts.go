@@ -23,3 +23,11 @@ func WithOcrApiCAPath(path string) Option {
 		i.ocrAPICaPath = path
 	}
 }
+
+func WithOpenSearchIndex(index string) Option {
+	return func(i *Indexer) {
+		if index != "" {
+			i.documentsIndex = index
+		}
+	}
+}

@@ -259,13 +259,21 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 
 func decodeError(body io.ReadCloser) string {
 	var errorMessage struct {
-		Error string `json:"error"`
+		Error json.RawMessage `json:"error"`
 	}
 	dec := json.NewDecoder(body)
 	if err := dec.Decode(&errorMessage); err != nil {
 		return fmt.Sprintf("failed to decode error: %v", err)
 	}
-	return errorMessage.Error
+	if len(errorMessage.Error) == 0 {
+		return ""
+	}
+
+	var plain string
+	if err := json.Unmarshal(errorMessage.Error, &plain); err == nil {
+		return plain
+	}
+	return string(errorMessage.Error)
 }
 
 // Given the result of the OCR, return the most likely date of the document
@@ -314,19 +322,55 @@ func (i *Indexer) getText(result *ocrclient.OcrResult) string {
 }
 
 func (i *Indexer) createOpensearchIndex(ctx context.Context) error {
+	exists, err := i.opensearchTargetExists(ctx, i.documentsIndex)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	resp, err := i.opensearchClient.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: i.documentsIndex})
 	if err != nil {
 		return fmt.Errorf("create index: %w", err)
 	}
-	if resp.Inspect().Response.StatusCode == http.StatusBadRequest {
-		// Index already exists
+	defer resp.Inspect().Response.Body.Close()
+
+	statusCode := resp.Inspect().Response.StatusCode
+	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
 		return nil
 	}
-	if resp.Inspect().Response.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
+	if statusCode == http.StatusBadRequest {
+		errorMessage := decodeError(resp.Inspect().Response.Body)
+		if strings.Contains(errorMessage, "resource_already_exists_exception") ||
+			strings.Contains(errorMessage, "already exists as alias") {
+			return nil
+		}
+		return fmt.Errorf("create index returned %s: %s", resp.Inspect().Response.Status(), errorMessage)
 	}
 
-	return nil
+	return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
+}
+
+func (i *Indexer) opensearchTargetExists(ctx context.Context, name string) (bool, error) {
+	resp, err := i.opensearchClient.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{name}})
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("check index or alias %s: %w", name, err)
+	}
+	defer resp.Body.Close()
+
+	statusCode := resp.StatusCode
+	if statusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if statusCode >= 400 {
+		return false, fmt.Errorf("check index or alias %s returned %s", name, resp.Status())
+	}
+
+	return true, nil
 }
 
 func (i *Indexer) ensureZefixClient() error {
@@ -339,12 +383,12 @@ func (i *Indexer) ensureZefixClient() error {
 }
 
 func (i *Indexer) PingZefix() error {
-	if i.zefixDsn == "" {
+	if zefix.IsDisabledDSN(i.zefixDsn) {
 		return nil
 	}
 	return i.zefixProcessor.Ping()
 }
 
 func (i *Indexer) IsZefixConfigured() bool {
-	return i.zefixDsn != ""
+	return !zefix.IsDisabledDSN(i.zefixDsn)
 }

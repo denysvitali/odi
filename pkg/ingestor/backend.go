@@ -41,6 +41,7 @@ func NewLocalBackend(config Config) (*LocalBackend, error) {
 	if config.OpenSearchSkipTLS {
 		opts = append(opts, indexer.WithOpenSearchSkipTLS())
 	}
+	opts = append(opts, indexer.WithOpenSearchIndex(config.OpenSearchIndex))
 	idx, err := indexer.New(
 		config.OpenSearchAddr, config.OcrAPIAddr, config.ZefixDsn,
 		opts...,

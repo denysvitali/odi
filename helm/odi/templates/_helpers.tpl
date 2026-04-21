@@ -148,7 +148,7 @@ When using the bundled subchart the password is taken from extraEnvs[0].
 {{/*
 Zefix PostgreSQL DSN.
 When the bundled CNPG cluster is enabled the DSN is constructed from postgresql.auth.
-When disabled, externalZefix.dsn must be provided.
+When disabled, externalZefix.dsn is optional; an empty DSN disables enrichment.
 */}}
 {{- define "odi.zefixDSN" -}}
 {{- if .Values.postgresql.enabled -}}
@@ -158,7 +158,7 @@ When disabled, externalZefix.dsn must be provided.
     (include "odi.postgres.rwService" .)
     .Values.postgresql.auth.database }}
 {{- else -}}
-{{- required "externalZefix.dsn is required when postgresql.enabled=false" .Values.externalZefix.dsn }}
+{{- .Values.externalZefix.dsn }}
 {{- end }}
 {{- end }}
 

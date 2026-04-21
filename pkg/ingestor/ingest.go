@@ -34,6 +34,7 @@ type Config struct {
 	OpenSearchUsername string
 	OpenSearchPassword string
 	OpenSearchSkipTLS  bool
+	OpenSearchIndex    string
 	ZefixDsn           string
 	Storage            model.Storer
 }

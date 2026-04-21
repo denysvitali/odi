@@ -129,6 +129,7 @@ func buildLocalBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 		OcrAPIAddr:         GetString(cmd, FlagOcrAPIAddr),
 		OpenSearchAddr:     GetString(cmd, FlagOsAddr),
 		OpenSearchPassword: GetString(cmd, FlagOsPassword),
+		OpenSearchIndex:    GetString(cmd, FlagOsIndex),
 		OpenSearchSkipTLS:  GetBool(cmd, FlagOsSkipTLS),
 		OpenSearchUsername: GetString(cmd, FlagOsUsername),
 		Storage:            storage,

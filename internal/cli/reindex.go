@@ -72,6 +72,7 @@ func runReindex(cmd *cobra.Command, args []string) error {
 	if GetBool(cmd, FlagOsSkipTLS) {
 		opts = append(opts, indexer.WithOpenSearchSkipTLS())
 	}
+	opts = append(opts, indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)))
 
 	idx, err := indexer.New(
 		GetString(cmd, FlagOsAddr),
