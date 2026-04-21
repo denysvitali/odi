@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { RefreshCw, Search, X } from 'lucide-vue-next'
+import { CalendarDays, RefreshCw, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import DocumentGrid from '@/components/documents/DocumentGrid.vue'
 import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
 import PageContainer from '@/components/layout/PageContainer.vue'
@@ -30,7 +31,7 @@ const filtersOpen = ref(false)
 const dateFrom = ref('')
 const dateTo = ref('')
 
-const hasActiveFilters = computed(() => dateFrom.value || dateTo.value)
+const hasActiveFilters = computed(() => Boolean(dateFrom.value || dateTo.value))
 
 const applyDateFilter = () => {
   if (!dateFrom.value && !dateTo.value) {
@@ -82,15 +83,58 @@ onMounted(() => {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="loading"
-          @click="refresh"
-        >
-          <RefreshCw class="mr-2 h-4 w-4" :class="{ 'animate-spin': loading }" />
-          Refresh
-        </Button>
+        <div class="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            :class="hasActiveFilters ? 'border-primary text-primary' : ''"
+            @click="filtersOpen = !filtersOpen"
+          >
+            <CalendarDays class="mr-2 h-4 w-4" />
+            Filters
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="loading"
+            @click="refresh"
+          >
+            <RefreshCw class="mr-2 h-4 w-4" :class="{ 'animate-spin': loading }" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div
+        v-if="filtersOpen"
+        class="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-end"
+      >
+        <label class="grid gap-1.5 text-sm font-medium">
+          From
+          <Input v-model="dateFrom" type="date" class="sm:w-44" />
+        </label>
+
+        <label class="grid gap-1.5 text-sm font-medium">
+          To
+          <Input v-model="dateTo" type="date" class="sm:w-44" />
+        </label>
+
+        <div class="flex gap-2">
+          <Button size="sm" @click="applyDateFilter">
+            Apply
+          </Button>
+          <Button
+            v-if="hasActiveFilters"
+            variant="ghost"
+            size="sm"
+            @click="clearFilters"
+          >
+            <X class="mr-2 h-4 w-4" />
+            Clear
+          </Button>
+        </div>
       </div>
 
       <!-- Error State -->
