@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
@@ -58,19 +59,36 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 		return fmt.Errorf("read page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 
+	page.ContentDigest = contentdigest.Sum(pageData)
+	reservation, err := b.idx.ReserveContentDigest(ctx, page.ContentDigest, page.ID())
+	if err != nil {
+		return fmt.Errorf("reserve content digest scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
+	}
+	if !reservation.Reserved {
+		log.Infof("scan=%s seq=%d duplicate of %s", page.ScanID, page.SequenceID, reservation.ExistingDocumentID)
+		return nil
+	}
+
 	if b.storage != nil {
 		err = b.storage.Store(ctx, models.ScannedPage{
-			Reader:     bytes.NewReader(pageData),
-			ScanID:     page.ScanID,
-			SequenceID: page.SequenceID,
+			Reader:        bytes.NewReader(pageData),
+			ScanID:        page.ScanID,
+			SequenceID:    page.SequenceID,
+			ContentDigest: page.ContentDigest,
 		})
 		if err != nil {
+			if releaseErr := b.idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+				log.Warnf("scan=%s seq=%d: unable to release content digest after storage failure: %v", page.ScanID, page.SequenceID, releaseErr)
+			}
 			return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 		}
 	}
 
 	page.Reader = bytes.NewReader(pageData)
 	if err := b.idx.Index(ctx, page); err != nil {
+		if releaseErr := b.idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+			log.Warnf("scan=%s seq=%d: unable to release content digest after index failure: %v", page.ScanID, page.SequenceID, releaseErr)
+		}
 		return fmt.Errorf("index page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 	return nil

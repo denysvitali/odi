@@ -78,6 +78,54 @@ func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
 	require.Equal(t, int32(1), requestCount.Load())
 }
 
+func TestRemoteBackend_FlushChunksLargeUploads(t *testing.T) {
+	var requestCount atomic.Int32
+	var sequenceOffsets []string
+	var scanIDs []string
+	var filesPerRequest []int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/upload", r.URL.Path)
+		requestCount.Add(1)
+		require.NoError(t, r.ParseMultipartForm(32<<20))
+
+		sequenceOffsets = append(sequenceOffsets, r.MultipartForm.Value["sequenceOffset"][0])
+		scanIDs = append(scanIDs, r.MultipartForm.Value["scanID"][0])
+		files := r.MultipartForm.File["files"]
+		filesPerRequest = append(filesPerRequest, len(files))
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"scanID":     r.MultipartForm.Value["scanID"][0],
+			"processed":  len(files),
+			"duplicates": 0,
+			"failed":     0,
+		})
+	}))
+	defer srv.Close()
+
+	b, err := ingestor.NewRemoteBackend(ingestor.RemoteBackendConfig{BaseURL: srv.URL})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	for seq := 1; seq <= 60; seq++ {
+		require.NoError(t, b.ProcessPage(ctx, models.ScannedPage{
+			Reader:     bytes.NewReader([]byte("jpeg-bytes-for-page")),
+			ScanID:     "89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
+			SequenceID: seq,
+		}))
+	}
+
+	require.NoError(t, b.Flush(ctx))
+	require.Equal(t, int32(3), requestCount.Load())
+	assert.Equal(t, []string{"0", "25", "50"}, sequenceOffsets)
+	assert.Equal(t, []int{25, 25, 10}, filesPerRequest)
+	assert.Equal(t, []string{
+		"89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
+		"89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
+		"89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
+	}, scanIDs)
+}
+
 func TestRemoteBackend_PingReady(t *testing.T) {
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

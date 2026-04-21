@@ -7,10 +7,11 @@ import (
 )
 
 type ScannedPage struct {
-	Reader     io.ReadSeeker
-	ScanID     string
-	SequenceID int
-	ScanTime   time.Time
+	Reader        io.ReadSeeker
+	ScanID        string
+	SequenceID    int
+	ScanTime      time.Time
+	ContentDigest string
 }
 
 func (s ScannedPage) ID() string {

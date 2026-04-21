@@ -156,6 +156,10 @@ func (i *Indexer) init() error {
 	if err != nil {
 		return fmt.Errorf("unable to create opensearch index: %w", err)
 	}
+	err = i.createContentDigestIndex(context.Background())
+	if err != nil {
+		return fmt.Errorf("unable to create content digest index: %w", err)
+	}
 
 	// Check if API ping works
 	h, err := i.ocrClient.Healthz()
@@ -223,6 +227,7 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 		IndexedAt:          time.Now(),
 		ScanID:             page.ScanID,
 		SequenceID:         page.SequenceID,
+		ContentDigest:      page.ContentDigest,
 	}
 	if len(dates) > 0 {
 		d.Date = &dates[0]
@@ -347,6 +352,48 @@ func (i *Indexer) createOpensearchIndex(ctx context.Context) error {
 			return nil
 		}
 		return fmt.Errorf("create index returned %s: %s", resp.Inspect().Response.Status(), errorMessage)
+	}
+
+	return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
+}
+
+func (i *Indexer) createContentDigestIndex(ctx context.Context) error {
+	exists, err := i.opensearchTargetExists(ctx, i.contentDigestIndex())
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	body := strings.NewReader(`{
+		"mappings": {
+			"properties": {
+				"documentID": { "type": "keyword" },
+				"createdAt": { "type": "date" }
+			}
+		}
+	}`)
+	resp, err := i.opensearchClient.Indices.Create(ctx, opensearchapi.IndicesCreateReq{
+		Index: i.contentDigestIndex(),
+		Body:  body,
+	})
+	if err != nil {
+		return fmt.Errorf("create content digest index: %w", err)
+	}
+	defer resp.Inspect().Response.Body.Close()
+
+	statusCode := resp.Inspect().Response.StatusCode
+	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
+		return nil
+	}
+	if statusCode == http.StatusBadRequest {
+		errorMessage := decodeError(resp.Inspect().Response.Body)
+		if strings.Contains(errorMessage, "resource_already_exists_exception") ||
+			strings.Contains(errorMessage, "already exists as alias") {
+			return nil
+		}
+		return fmt.Errorf("create content digest index returned %s: %s", resp.Inspect().Response.Status(), errorMessage)
 	}
 
 	return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())

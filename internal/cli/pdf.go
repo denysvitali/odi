@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/denysvitali/odi/internal/ui"
+	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 )
@@ -162,12 +163,30 @@ func indexPDF(ctx context.Context, idx *indexer.Indexer, pdfPath, scanID string,
 			}
 
 			*seq++
-			indexErr := idx.Index(ctx, models.ScannedPage{
-				Reader:     bytes.NewReader(data),
-				ScanID:     scanID,
-				SequenceID: *seq,
-			})
+			page := models.ScannedPage{
+				Reader:        bytes.NewReader(data),
+				ScanID:        scanID,
+				SequenceID:    *seq,
+				ContentDigest: contentdigest.Sum(data),
+			}
+			reservation, reserveErr := idx.ReserveContentDigest(ctx, page.ContentDigest, page.ID())
+			if reserveErr != nil {
+				logrus.Errorf("Failed to reserve content digest for image (obj %d) from %s: %v",
+					img.ObjNr, filepath.Base(pdfPath), reserveErr)
+				continue
+			}
+			if !reservation.Reserved {
+				logrus.Infof("Skipping duplicate image (obj %d) from %s; duplicate of %s",
+					img.ObjNr, filepath.Base(pdfPath), reservation.ExistingDocumentID)
+				continue
+			}
+
+			indexErr := idx.Index(ctx, page)
 			if indexErr != nil {
+				if releaseErr := idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+					logrus.Warnf("Failed to release content digest for image (obj %d) from %s after index failure: %v",
+						img.ObjNr, filepath.Base(pdfPath), releaseErr)
+				}
 				logrus.Errorf("Failed to index image (obj %d) from %s: %v",
 					img.ObjNr, filepath.Base(pdfPath), indexErr)
 				continue

@@ -5,25 +5,29 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/models"
 )
 
 type uploadPageResult struct {
-	SequenceID int    `json:"sequenceID"`
-	Status     string `json:"status"`
-	Error      string `json:"error,omitempty"`
+	SequenceID  int    `json:"sequenceID"`
+	Status      string `json:"status"`
+	DuplicateOf string `json:"duplicateOf,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type uploadResponse struct {
-	ScanID    string             `json:"scanID"`
-	Processed int                `json:"processed"`
-	Failed    int                `json:"failed"`
-	Pages     []uploadPageResult `json:"pages"`
+	ScanID     string             `json:"scanID"`
+	Processed  int                `json:"processed"`
+	Duplicates int                `json:"duplicates"`
+	Failed     int                `json:"failed"`
+	Pages      []uploadPageResult `json:"pages"`
 }
 
 const (
@@ -53,7 +57,22 @@ func (s *Server) handleUpload(c *gin.Context) {
 		return
 	}
 
-	scanID := uuid.NewString()
+	scanID := c.PostForm("scanID")
+	if scanID == "" {
+		scanID = uuid.NewString()
+	} else if _, err := uuid.Parse(scanID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scanID: " + err.Error()})
+		return
+	}
+	sequenceOffset := 0
+	if rawOffset := c.PostForm("sequenceOffset"); rawOffset != "" {
+		parsedOffset, err := strconv.Atoi(rawOffset)
+		if err != nil || parsedOffset < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sequenceOffset"})
+			return
+		}
+		sequenceOffset = parsedOffset
+	}
 	log.Infof("upload started: scan=%s files=%d", scanID, len(files))
 	results := make([]uploadPageResult, len(files))
 
@@ -70,14 +89,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 			defer func() { <-sem }()
 
 			result := uploadPageResult{
-				SequenceID: idx + 1,
+				SequenceID: sequenceOffset + idx + 1,
 			}
 
 			f, err := fileHeader.Open()
 			if err != nil {
 				result.Status = "failed"
 				result.Error = err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q: %v", scanID, idx+1, fileHeader.Filename, err)
+				log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -89,7 +108,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 				f.Close()
 				result.Status = "failed"
 				result.Error = err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, idx+1, fileHeader.Filename, err)
+				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -97,17 +116,42 @@ func (s *Server) handleUpload(c *gin.Context) {
 			}
 			f.Close()
 
+			digest := contentdigest.Sum(buf.Bytes())
 			reader := bytes.NewReader(buf.Bytes())
 			page := models.ScannedPage{
-				Reader:     reader,
-				ScanID:     scanID,
-				SequenceID: idx + 1,
+				Reader:        reader,
+				ScanID:        scanID,
+				SequenceID:    result.SequenceID,
+				ContentDigest: digest,
+			}
+
+			reservation, err := s.indexer.ReserveContentDigest(c.Request.Context(), digest, page.ID())
+			if err != nil {
+				result.Status = "failed"
+				result.Error = "dedupe: " + err.Error()
+				log.Errorf("upload scan=%s page=%d: unable to reserve content digest: %v", scanID, result.SequenceID, err)
+				mu.Lock()
+				results[idx] = result
+				mu.Unlock()
+				return
+			}
+			if !reservation.Reserved {
+				result.Status = "duplicate"
+				result.DuplicateOf = reservation.ExistingDocumentID
+				log.Infof("upload scan=%s page=%d: duplicate of %s", scanID, result.SequenceID, reservation.ExistingDocumentID)
+				mu.Lock()
+				results[idx] = result
+				mu.Unlock()
+				return
 			}
 
 			if err := s.storage.Store(c.Request.Context(), page); err != nil {
+				if releaseErr := s.indexer.ReleaseContentDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
+					log.Warnf("upload scan=%s page=%d: unable to release content digest after storage failure: %v", scanID, result.SequenceID, releaseErr)
+				}
 				result.Status = "failed"
 				result.Error = "storage: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to store page: %v", scanID, idx+1, err)
+				log.Errorf("upload scan=%s page=%d: unable to store page: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -117,7 +161,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if _, err := reader.Seek(0, io.SeekStart); err != nil {
 				result.Status = "failed"
 				result.Error = "seek: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to seek after storage: %v", scanID, idx+1, err)
+				log.Errorf("upload scan=%s page=%d: unable to seek after storage: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -126,9 +170,12 @@ func (s *Server) handleUpload(c *gin.Context) {
 			page.Reader = reader
 
 			if err := s.indexer.Index(c.Request.Context(), page); err != nil {
+				if releaseErr := s.indexer.ReleaseContentDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
+					log.Warnf("upload scan=%s page=%d: unable to release content digest after index failure: %v", scanID, result.SequenceID, releaseErr)
+				}
 				result.Status = "failed"
 				result.Error = "index: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to index page: %v", scanID, idx+1, err)
+				log.Errorf("upload scan=%s page=%d: unable to index page: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -145,20 +192,25 @@ func (s *Server) handleUpload(c *gin.Context) {
 	wg.Wait()
 
 	processed := 0
+	duplicates := 0
 	failed := 0
 	for _, r := range results {
-		if r.Status == "indexed" {
+		switch r.Status {
+		case "indexed":
 			processed++
-		} else {
+		case "duplicate":
+			duplicates++
+		default:
 			failed++
 		}
 	}
 
-	log.Infof("upload finished: scan=%s processed=%d failed=%d", scanID, processed, failed)
+	log.Infof("upload finished: scan=%s processed=%d duplicates=%d failed=%d", scanID, processed, duplicates, failed)
 	c.JSON(http.StatusOK, uploadResponse{
-		ScanID:    scanID,
-		Processed: processed,
-		Failed:    failed,
-		Pages:     results,
+		ScanID:     scanID,
+		Processed:  processed,
+		Duplicates: duplicates,
+		Failed:     failed,
+		Pages:      results,
 	})
 }

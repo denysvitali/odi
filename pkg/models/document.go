@@ -17,6 +17,7 @@ type Document struct {
 	IndexedAt          time.Time       `json:"indexedAt,omitempty"`
 
 	// Scan specific fields
-	ScanID     string `json:"scanID"`
-	SequenceID int    `json:"sequenceID"`
+	ScanID        string `json:"scanID"`
+	SequenceID    int    `json:"sequenceID"`
+	ContentDigest string `json:"contentDigest,omitempty"`
 }

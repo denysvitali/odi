@@ -110,7 +110,10 @@ onUnmounted(() => {
           <CheckCircle class="h-5 w-5" aria-hidden="true" />
           Upload Complete
         </CardTitle>
-        <CardDescription>Successfully processed {{ result.processed }} page(s).</CardDescription>
+        <CardDescription>
+          Processed {{ result.processed }} page(s)
+          <template v-if="result.duplicates">, skipped {{ result.duplicates }} duplicate(s)</template>.
+        </CardDescription>
       </CardHeader>
       <CardContent class="space-y-3">
         <div class="text-sm text-muted-foreground">
@@ -129,7 +132,9 @@ onUnmounted(() => {
           <XCircle class="h-5 w-5" aria-hidden="true" />
           Upload Completed with Errors
         </CardTitle>
-        <CardDescription>{{ result.processed }} succeeded, {{ result.failed }} failed.</CardDescription>
+        <CardDescription>
+          {{ result.processed }} succeeded, {{ result.duplicates }} duplicate(s), {{ result.failed }} failed.
+        </CardDescription>
       </CardHeader>
       <CardContent class="space-y-3">
         <div class="text-sm text-muted-foreground">
@@ -137,9 +142,14 @@ onUnmounted(() => {
         </div>
         <div class="space-y-1">
           <div v-for="page in result.pages" :key="page.sequenceID" class="flex items-center gap-2 text-sm">
-            <CheckCircle v-if="page.status === 'indexed'" class="h-4 w-4 text-green-500" aria-hidden="true" />
+            <CheckCircle
+              v-if="page.status === 'indexed' || page.status === 'duplicate'"
+              class="h-4 w-4 text-green-500"
+              aria-hidden="true"
+            />
             <XCircle v-else class="h-4 w-4 text-red-500" aria-hidden="true" />
             <span>Page {{ page.sequenceID }}: {{ page.status }}</span>
+            <span v-if="page.duplicateOf" class="text-muted-foreground">(duplicate of {{ page.duplicateOf }})</span>
             <span v-if="page.error" class="text-muted-foreground">({{ page.error }})</span>
           </div>
         </div>
