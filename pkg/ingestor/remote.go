@@ -9,9 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/denysvitali/odi/pkg/models"
@@ -27,15 +25,12 @@ type RemoteBackendConfig struct {
 	HTTPClient *http.Client
 }
 
-// RemoteBackend buffers scanned pages in memory and flushes them in one
-// or more multipart POSTs to the remote odi server's /api/v1/upload endpoint.
+// RemoteBackend posts each scanned page to the remote odi server's
+// /api/v1/upload endpoint as soon as ProcessPage is called.
 type RemoteBackend struct {
 	baseURL string
 	token   string
 	client  *http.Client
-
-	mu    sync.Mutex
-	pages []remotePage
 }
 
 type remotePage struct {
@@ -51,8 +46,6 @@ type UploadResponse struct {
 	Duplicates int    `json:"duplicates"`
 	Failed     int    `json:"failed"`
 }
-
-const remoteUploadChunkSize = 25
 
 func NewRemoteBackend(cfg RemoteBackendConfig) (*RemoteBackend, error) {
 	if cfg.BaseURL == "" {
@@ -76,77 +69,43 @@ func NewRemoteBackend(cfg RemoteBackendConfig) (*RemoteBackend, error) {
 	}, nil
 }
 
-func (r *RemoteBackend) ProcessPage(_ context.Context, page models.ScannedPage) error {
+func (r *RemoteBackend) ProcessPage(ctx context.Context, page models.ScannedPage) error {
 	data, err := io.ReadAll(page.Reader)
 	if err != nil {
 		return fmt.Errorf("remote backend: read page seq=%d: %w", page.SequenceID, err)
 	}
-	r.mu.Lock()
-	r.pages = append(r.pages, remotePage{scanID: page.ScanID, sequenceID: page.SequenceID, data: data})
-	r.mu.Unlock()
+
+	ur, err := r.uploadPage(ctx, remotePage{scanID: page.ScanID, sequenceID: page.SequenceID, data: data})
+	if err != nil {
+		return err
+	}
+	if ur.Failed > 0 {
+		return fmt.Errorf("remote backend: server reported %d failed pages (scan %s)", ur.Failed, ur.ScanID)
+	}
+	log.Infof("remote upload: scan=%s seq=%d processed=%d duplicates=%d", ur.ScanID, page.SequenceID, ur.Processed, ur.Duplicates)
 	return nil
 }
 
-// Flush uploads all buffered pages in bounded multipart requests.
-func (r *RemoteBackend) Flush(ctx context.Context) error {
-	r.mu.Lock()
-	pages := r.pages
-	r.pages = nil
-	r.mu.Unlock()
+// Flush is a no-op for RemoteBackend because pages are uploaded immediately.
+func (r *RemoteBackend) Flush(context.Context) error { return nil }
 
-	if len(pages) == 0 {
-		return nil
-	}
-	sort.Slice(pages, func(i, j int) bool {
-		return pages[i].sequenceID < pages[j].sequenceID
-	})
-
-	scanID := pages[0].scanID
-	totalProcessed := 0
-	totalDuplicates := 0
-	for start := 0; start < len(pages); start += remoteUploadChunkSize {
-		end := start + remoteUploadChunkSize
-		if end > len(pages) {
-			end = len(pages)
-		}
-		ur, err := r.uploadChunk(ctx, scanID, pages[start:end])
-		if err != nil {
-			return err
-		}
-		if scanID == "" {
-			scanID = ur.ScanID
-		}
-		totalProcessed += ur.Processed
-		totalDuplicates += ur.Duplicates
-		if ur.Failed > 0 {
-			return fmt.Errorf("remote backend: server reported %d failed pages (scan %s)", ur.Failed, ur.ScanID)
-		}
-	}
-	log.Infof("remote upload: scan=%s processed=%d duplicates=%d", scanID, totalProcessed, totalDuplicates)
-	return nil
-}
-
-func (r *RemoteBackend) uploadChunk(ctx context.Context, scanID string, pages []remotePage) (UploadResponse, error) {
+func (r *RemoteBackend) uploadPage(ctx context.Context, page remotePage) (UploadResponse, error) {
 	body := &bytes.Buffer{}
 	w := multipart.NewWriter(body)
-	if scanID != "" {
-		if err := w.WriteField("scanID", scanID); err != nil {
+	if page.scanID != "" {
+		if err := w.WriteField("scanID", page.scanID); err != nil {
 			return UploadResponse{}, fmt.Errorf("remote backend: multipart scanID: %w", err)
 		}
 	}
-	if len(pages) > 0 {
-		if err := w.WriteField("sequenceOffset", fmt.Sprintf("%d", pages[0].sequenceID-1)); err != nil {
-			return UploadResponse{}, fmt.Errorf("remote backend: multipart sequenceOffset: %w", err)
-		}
+	if err := w.WriteField("sequenceOffset", fmt.Sprintf("%d", page.sequenceID-1)); err != nil {
+		return UploadResponse{}, fmt.Errorf("remote backend: multipart sequenceOffset: %w", err)
 	}
-	for _, p := range pages {
-		fw, err := w.CreateFormFile("files", fmt.Sprintf("page-%04d.jpg", p.sequenceID))
-		if err != nil {
-			return UploadResponse{}, fmt.Errorf("remote backend: multipart create: %w", err)
-		}
-		if _, err := fw.Write(p.data); err != nil {
-			return UploadResponse{}, fmt.Errorf("remote backend: multipart write: %w", err)
-		}
+	fw, err := w.CreateFormFile("files", fmt.Sprintf("page-%04d.jpg", page.sequenceID))
+	if err != nil {
+		return UploadResponse{}, fmt.Errorf("remote backend: multipart create: %w", err)
+	}
+	if _, err := fw.Write(page.data); err != nil {
+		return UploadResponse{}, fmt.Errorf("remote backend: multipart write: %w", err)
 	}
 	if err := w.Close(); err != nil {
 		return UploadResponse{}, fmt.Errorf("remote backend: multipart close: %w", err)
@@ -163,7 +122,7 @@ func (r *RemoteBackend) uploadChunk(ctx context.Context, scanID string, pages []
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return UploadResponse{}, fmt.Errorf("remote backend: upload %d pages: %w", len(pages), err)
+		return UploadResponse{}, fmt.Errorf("remote backend: upload page seq=%d: %w", page.sequenceID, err)
 	}
 	defer resp.Body.Close()
 
@@ -176,7 +135,6 @@ func (r *RemoteBackend) uploadChunk(ctx context.Context, scanID string, pages []
 	if err := json.NewDecoder(resp.Body).Decode(&ur); err != nil {
 		return UploadResponse{}, fmt.Errorf("remote backend: decode upload response: %w", err)
 	}
-	log.Infof("remote upload chunk: scan=%s pages=%d processed=%d duplicates=%d failed=%d", ur.ScanID, len(pages), ur.Processed, ur.Duplicates, ur.Failed)
 	return ur, nil
 }
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -180,6 +181,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 				results[idx] = result
 				mu.Unlock()
 				return
+			}
+
+			if generated, _, err := s.ensureThumbnailFromReader(c.Request.Context(), page.ScanID, page.SequenceID, bytes.NewReader(buf.Bytes())); err != nil {
+				if !errors.Is(err, errThumbnailStorageUnsupported) {
+					log.Warnf("upload scan=%s page=%d: unable to generate thumbnail: %v", scanID, result.SequenceID, err)
+				}
+			} else if generated {
+				log.Debugf("upload scan=%s page=%d: generated thumbnail", scanID, result.SequenceID)
 			}
 
 			result.Status = "indexed"

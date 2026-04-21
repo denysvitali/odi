@@ -18,10 +18,11 @@ import (
 	"github.com/denysvitali/odi/pkg/models"
 )
 
-func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
+func TestRemoteBackend_ProcessPagePostsImmediately(t *testing.T) {
 	var gotAuth string
 	var gotFiles []string
 	var gotContentType string
+	var gotSequenceOffsets []string
 	var requestCount atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +33,7 @@ func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
 		gotContentType = r.Header.Get("Content-Type")
 
 		require.NoError(t, r.ParseMultipartForm(32<<20))
+		gotSequenceOffsets = append(gotSequenceOffsets, r.MultipartForm.Value["sequenceOffset"][0])
 		for _, fh := range r.MultipartForm.File["files"] {
 			gotFiles = append(gotFiles, fh.Filename)
 			f, err := fh.Open()
@@ -41,8 +43,8 @@ func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"scanID":    "abc-123",
-			"processed": len(gotFiles),
+			"scanID":    r.MultipartForm.Value["scanID"][0],
+			"processed": 1,
 			"failed":    0,
 		})
 	}))
@@ -58,27 +60,26 @@ func TestRemoteBackend_FlushPostsAllBufferedPages(t *testing.T) {
 	for seq := 1; seq <= 3; seq++ {
 		page := models.ScannedPage{
 			Reader:     bytes.NewReader([]byte("jpeg-bytes-for-page")),
-			ScanID:     "ignored-client-id",
+			ScanID:     "89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
 			SequenceID: seq,
 		}
 		require.NoError(t, b.ProcessPage(ctx, page))
 	}
 
-	// No request should have been sent yet — ProcessPage only buffers.
-	require.Zero(t, requestCount.Load())
-
+	require.Equal(t, int32(3), requestCount.Load())
 	require.NoError(t, b.Flush(ctx))
-	require.Equal(t, int32(1), requestCount.Load())
+	require.Equal(t, int32(3), requestCount.Load())
 	assert.Equal(t, "Bearer secret-token", gotAuth)
 	assert.True(t, strings.HasPrefix(gotContentType, "multipart/form-data"), "got %q", gotContentType)
 	assert.Len(t, gotFiles, 3)
+	assert.Equal(t, []string{"0", "1", "2"}, gotSequenceOffsets)
 
-	// Flushing again with no buffered pages must be a no-op.
+	// Flushing is a no-op because ProcessPage uploads immediately.
 	require.NoError(t, b.Flush(ctx))
-	require.Equal(t, int32(1), requestCount.Load())
+	require.Equal(t, int32(3), requestCount.Load())
 }
 
-func TestRemoteBackend_FlushChunksLargeUploads(t *testing.T) {
+func TestRemoteBackend_ProcessPageUploadsLargeScansOneByOne(t *testing.T) {
 	var requestCount atomic.Int32
 	var sequenceOffsets []string
 	var scanIDs []string
@@ -96,7 +97,7 @@ func TestRemoteBackend_FlushChunksLargeUploads(t *testing.T) {
 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"scanID":     r.MultipartForm.Value["scanID"][0],
-			"processed":  len(files),
+			"processed":  1,
 			"duplicates": 0,
 			"failed":     0,
 		})
@@ -107,7 +108,7 @@ func TestRemoteBackend_FlushChunksLargeUploads(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	for seq := 1; seq <= 60; seq++ {
+	for seq := 1; seq <= 3; seq++ {
 		require.NoError(t, b.ProcessPage(ctx, models.ScannedPage{
 			Reader:     bytes.NewReader([]byte("jpeg-bytes-for-page")),
 			ScanID:     "89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
@@ -117,8 +118,8 @@ func TestRemoteBackend_FlushChunksLargeUploads(t *testing.T) {
 
 	require.NoError(t, b.Flush(ctx))
 	require.Equal(t, int32(3), requestCount.Load())
-	assert.Equal(t, []string{"0", "25", "50"}, sequenceOffsets)
-	assert.Equal(t, []int{25, 25, 10}, filesPerRequest)
+	assert.Equal(t, []string{"0", "1", "2"}, sequenceOffsets)
+	assert.Equal(t, []int{1, 1, 1}, filesPerRequest)
 	assert.Equal(t, []string{
 		"89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
 		"89aefd17-4e1c-4339-bbc7-3bd0ca40a34c",
@@ -181,10 +182,9 @@ func TestRemoteBackend_FlushServerError(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, b.ProcessPage(ctx, models.ScannedPage{
+	err = b.ProcessPage(ctx, models.ScannedPage{
 		Reader: bytes.NewReader([]byte("x")), SequenceID: 1,
-	}))
-	err = b.Flush(ctx)
+	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 500")
 }

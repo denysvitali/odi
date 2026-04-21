@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -14,7 +15,11 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/opensearch-project/opensearch-go/v4"
+	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/denysvitali/odi/pkg/models"
 )
@@ -89,9 +94,9 @@ func (m *mockRWStorage) addPage(scanID string, sequenceID int, data []byte) {
 
 type mockServer struct {
 	*Server
-	storage         *mockRWStorage
-	thumbStorage    *mockThumbnailStorage
-	router          *gin.Engine
+	storage      *mockRWStorage
+	thumbStorage *mockThumbnailStorage
+	router       *gin.Engine
 }
 
 func setupTestServer(thumbStorage *mockThumbnailStorage, rwStorage *mockRWStorage) *mockServer {
@@ -105,7 +110,7 @@ func setupTestServer(thumbStorage *mockThumbnailStorage, rwStorage *mockRWStorag
 	}
 
 	storage := &mockCombinedStorage{
-		mockRWStorage:  rwStorage,
+		mockRWStorage:        rwStorage,
 		mockThumbnailStorage: thumbStorage,
 	}
 
@@ -255,4 +260,65 @@ func TestHandleGetThumbnail_GenerateNewThumbnail(t *testing.T) {
 	if !thumbStorage.storeThumbCalled {
 		t.Error("expected StoreThumbnail to be called")
 	}
+}
+
+func TestHandleProcessMissingThumbnails_GeneratesMissingThumbnail(t *testing.T) {
+	const scanID = "89aefd17-4e1c-4339-bbc7-3bd0ca40a34c"
+
+	osServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/documents/_search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"_scroll_id": "scroll-1",
+				"hits": map[string]any{
+					"hits": []map[string]any{
+						{"_source": map[string]any{"scanID": scanID, "sequenceID": 1}},
+					},
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/_search/scroll":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"_scroll_id": "scroll-1",
+				"hits":       map[string]any{"hits": []any{}},
+			})
+		case r.Method == http.MethodDelete && r.URL.Path == "/_search/scroll/scroll-1":
+			_ = json.NewEncoder(w).Encode(map[string]any{"succeeded": true, "num_freed": 1})
+		default:
+			t.Fatalf("unexpected OpenSearch request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer osServer.Close()
+
+	osClient, err := opensearchapi.NewClient(opensearchapi.Config{
+		Client: opensearch.Config{Addresses: []string{osServer.URL}},
+	})
+	require.NoError(t, err)
+
+	router := gin.New()
+	thumbStorage := &mockThumbnailStorage{exists: false}
+	rwStorage := newMockRWStorage()
+	rwStorage.addPage(scanID, 1, createTestPNG())
+	storage := &mockCombinedStorage{
+		mockRWStorage:        rwStorage,
+		mockThumbnailStorage: thumbStorage,
+	}
+	s := &Server{
+		storage:  storage,
+		e:        router,
+		osClient: osClient,
+		osIndex:  "documents",
+	}
+	router.POST("/api/v1/thumbnails/process", s.handleProcessMissingThumbnails)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/thumbnails/process", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var result thumbnailProcessingResult
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, 1, result.Checked)
+	assert.Equal(t, 1, result.Generated)
+	assert.Zero(t, result.Failed)
+	assert.True(t, thumbStorage.storeThumbCalled)
 }

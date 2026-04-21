@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -42,6 +43,7 @@ type Server struct {
 	osClient             *opensearchapi.Client
 	storage              model.RWStorage
 	indexer              *indexer.Indexer
+	thumbnailProcessMu   sync.Mutex
 }
 
 var log = logrus.StandardLogger().WithField("package", "server")
@@ -119,6 +121,10 @@ func (s *Server) verifyOpensearch(ctx context.Context, osIndex string) error {
 }
 
 func (s *Server) Run(addr string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.startThumbnailProcessor(ctx)
+
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.e,
@@ -159,6 +165,7 @@ func (s *Server) initRoutes() {
 	g.GET("/documents", s.handleGetDocuments)
 	g.GET("/files/:scanID/:sequenceId", s.handleGetFile)
 	g.GET("/thumbnails/:id", s.handleGetThumbnail)
+	g.POST("/thumbnails/process", s.handleProcessMissingThumbnails)
 	g.POST("/upload", s.handleUpload)
 }
 
