@@ -41,7 +41,7 @@ export function useUpload() {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             resolve(JSON.parse(xhr.responseText) as UploadResult)
-          } catch (e) {
+          } catch {
             reject(new Error('Invalid response'))
           }
         } else {
@@ -78,8 +78,8 @@ export function useUpload() {
           const data = await attemptOnce(files)
           result.value = data
           return data
-        } catch (e) {
-          const err = e as Error & { status?: number }
+        } catch (caught) {
+          const err = caught as Error & { status?: number }
           const status = err.status ?? 0
           const retryable = status === 0 || status >= 500
           if (!retryable || attempt.value >= MAX_ATTEMPTS) {

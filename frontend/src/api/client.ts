@@ -42,9 +42,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         if (ct.includes('application/json')) return (await res.json()) as T
         return (await res.text()) as unknown as T
       }
-    } catch (e) {
-      if (e instanceof ApiError && !e.retryable) throw e
-      lastError = e as Error
+    } catch (err) {
+      if (err instanceof ApiError && !err.retryable) throw err
+      lastError = err as Error
       if (attempt === retries) break
     }
     await new Promise((r) => setTimeout(r, retryDelayMs * Math.pow(2, attempt)))

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Upload, FileImage, CheckCircle, XCircle, Loader2, X, Camera, RefreshCw } from 'lucide-vue-next'
+import { Upload, CheckCircle, XCircle, Loader2, X, Camera, RefreshCw } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { useUpload } from '@/composables/useUpload'
