@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/alexflint/go-arg v1.4.3
-	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/charmbracelet/lipgloss/v2 v2.0.3
 	github.com/denysvitali/go-datesfinder v0.0.1
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
 	github.com/denysvitali/sparql-client v0.0.0-20240111232713-5d0abd46fd48
