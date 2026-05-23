@@ -38,10 +38,12 @@ function isValidSettings(value: unknown): value is Settings {
 }
 
 async function loadSettings(): Promise<Settings> {
-  const path =
+  const basePath = import.meta.env.BASE_URL || '/'
+  const settingsFile =
     typeof window !== 'undefined' && window.location.hostname === 'odi.denv.it'
-      ? '/settings-mock.json'
-      : '/settings.json'
+      ? 'settings-mock.json'
+      : 'settings.json'
+  const path = new URL(settingsFile, window.location.origin + basePath).toString()
   const res = await fetch(path)
   if (!res.ok) throw new Error(`Failed to load settings (${res.status})`)
   const data = await res.json()

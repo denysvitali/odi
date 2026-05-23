@@ -9,16 +9,15 @@ export function useSettings() {
   const loadSettings = async (): Promise<Settings | null> => {
     loading.value = true
     error.value = null
+    const basePath = import.meta.env.BASE_URL || '/'
+    const file = window.location.hostname === 'odi.denv.it' ? 'settings-mock.json' : 'settings.json'
+    const url = new URL(file, window.location.origin + basePath)
 
     try {
       let response: Response
 
-      if (window.location.hostname === 'odi.denv.it') {
-        // Mock on GitHub pages
-        response = await fetch('/settings-mock.json')
-      } else {
-        response = await fetch('/settings.json')
-      }
+      // Mock on GitHub pages
+      response = await fetch(url.toString())
 
       if (!response.ok) {
         throw new Error(`Failed to load settings: ${response.statusText}`)
