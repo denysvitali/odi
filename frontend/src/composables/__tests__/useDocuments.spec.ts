@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useDocuments } from '@/composables/useDocuments'
 
 declare global {
-  // eslint-disable-next-line no-var
+   
   var _settings: { apiUrl: string; opensearchUrl: string }
 }
 

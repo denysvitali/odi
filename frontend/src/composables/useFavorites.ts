@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { STORAGE_KEYS } from '@/lib/constants'
+import { logger } from '@/lib/logger'
 
 const favorites = ref<Set<string>>(new Set())
 let loaded = false
@@ -7,7 +8,9 @@ let loaded = false
 function save() {
   try {
     localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify([...favorites.value]))
-  } catch {}
+  } catch (err) {
+    logger.warn('useFavorites: failed to persist favorites to localStorage', err)
+  }
 }
 
 function load() {
@@ -16,7 +19,9 @@ function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.FAVORITES)
     if (raw) favorites.value = new Set(JSON.parse(raw))
-  } catch {}
+  } catch (err) {
+    logger.warn('useFavorites: failed to read favorites from localStorage', err)
+  }
 }
 
 export function useFavorites() {

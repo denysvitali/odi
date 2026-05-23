@@ -2,40 +2,50 @@
 
 ## Description
 
-odi-frontend is a frontend interface for [odi-backend](https://github.com/denysvitali/odi-backend), a privacy-aware tool designed to scan, OCR process, and index paper documents. This system enables users to digitize their physical documents and make them searchable via OpenSearch.
+`odi-frontend` is the web UI for [ODI](https://github.com/denysvitali/odi), a privacy-aware tool that scans, OCR-processes, and indexes paper documents. It lets you search and browse digitized documents through the ODI backend's REST API.
 
-![ODI Frontend](https://github.com/denysvitali/odi-backend/raw/master/docs/odi-frontend.jpg)
+![ODI Frontend](https://github.com/denysvitali/odi/raw/main/docs/odi-frontend.jpg)
 
 ## Prerequisites
 
-- [odi-backend](https://github.com/denysvitali/odi-backend) must be running and accessible from the frontend.
+- The ODI backend (`go run . serve` from the repo root) must be running and reachable.
+- [pnpm](https://pnpm.io/) for package management.
+- Node 20+.
 
 ## Running
 
-### Using Docker (Recommended)
+### Using Docker
 
-The easiest way to get started is using Docker Compose:
+The repository ships a `Dockerfile` for the frontend. The unified `docker-compose.yml` at the repo root starts only the data services (OpenSearch, Postgres) — to run the frontend in a container, build the image manually:
 
 ```bash
-docker-compose up -d
+docker build -t odi-frontend .
+docker run --rm -p 8080:80 odi-frontend
 ```
 
-This will start the frontend server and connect it to the backend.
+### Development setup
 
-### Development Setup
+From the repo root (or this directory):
 
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/denysvitali/odi-frontend.git
-    cd odi-frontend
-    ```
+```bash
+# Install dependencies
+pnpm install
 
-2. Install dependencies:
-    ```bash
-    yarn install
-    ```
+# Start the Vite dev server (http://localhost:5173)
+pnpm run dev
+```
 
-3. Start the development server:
-    ```bash
-    yarn dev
-    ```
+### Useful scripts
+
+```bash
+pnpm run build    # production build
+pnpm run lint     # ESLint
+pnpm test         # Vitest
+```
+
+### Runtime configuration
+
+The SPA reads runtime settings from `public/settings.json` (or `settings.json.tpl` in Docker — substituted at container start). At minimum it needs:
+
+- `apiUrl` — the ODI backend REST endpoint
+- `opensearchUrl` — OpenSearch Dashboards URL (used only for deep links)

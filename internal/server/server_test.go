@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/denysvitali/odi/pkg/models"
+	"github.com/denysvitali/odi/pkg/storage/model"
 )
 
 func TestMain(m *testing.M) {
@@ -74,9 +75,14 @@ func (m *mockRWStorage) Retrieve(ctx context.Context, scanID string, sequenceNum
 	}
 	page, ok := m.pages[pageKey(scanID, sequenceNumber)]
 	if !ok {
-		return nil, os.ErrNotExist
+		return nil, model.ErrNotFound
 	}
 	return page, nil
+}
+
+func (m *mockRWStorage) Delete(ctx context.Context, scanID string, sequenceNumber int) error {
+	delete(m.pages, pageKey(scanID, sequenceNumber))
+	return nil
 }
 
 func pageKey(scanID string, sequenceNumber int) string {
@@ -137,6 +143,10 @@ func (m *mockCombinedStorage) Store(ctx context.Context, page models.ScannedPage
 
 func (m *mockCombinedStorage) Retrieve(ctx context.Context, scanID string, sequenceNumber int) (*models.ScannedPage, error) {
 	return m.mockRWStorage.Retrieve(ctx, scanID, sequenceNumber)
+}
+
+func (m *mockCombinedStorage) Delete(ctx context.Context, scanID string, sequenceNumber int) error {
+	return m.mockRWStorage.Delete(ctx, scanID, sequenceNumber)
 }
 
 func (m *mockCombinedStorage) ThumbnailExists(ctx context.Context, scanID string, sequenceNumber int) (bool, error) {

@@ -12,7 +12,8 @@ Monorepo with a single Go module (`github.com/denysvitali/odi`) and a Vue 3 fron
 - `pkg/` — Shared Go packages (indexer, ingestor, storage, ocrclient, models, crypt, zefix, etc.)
 - `zefix-tools/` — Zefix Swiss company register package (`pkg/zefix/`) and legacy standalone CLIs
 - `frontend/` — Vue 3 + TypeScript SPA built with Vite. See `frontend/CLAUDE.md`.
-- `helm/odi/` — Helm chart for deployment.
+
+The Helm chart lives in a separate repository.
 
 All Go build/test/lint commands run from the repo root.
 

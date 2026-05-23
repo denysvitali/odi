@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Document } from '@/types/documents'
+import { logger } from '@/lib/logger'
 
 export const useDocumentStore = defineStore('documents', () => {
   // State
@@ -46,17 +47,26 @@ export const useDocumentStore = defineStore('documents', () => {
     }
 
     // Persist to localStorage
-    localStorage.setItem('odi-recent-searches', JSON.stringify(recentSearches.value))
+    try {
+      localStorage.setItem('odi-recent-searches', JSON.stringify(recentSearches.value))
+    } catch (err) {
+      logger.warn('documents store: failed to persist recent searches to localStorage', err)
+    }
   }
 
   const loadRecentSearches = () => {
-    const stored = localStorage.getItem('odi-recent-searches')
-    if (stored) {
-      try {
-        recentSearches.value = JSON.parse(stored)
-      } catch {
-        recentSearches.value = []
+    try {
+      const stored = localStorage.getItem('odi-recent-searches')
+      if (stored) {
+        try {
+          recentSearches.value = JSON.parse(stored)
+        } catch (err) {
+          logger.warn('documents store: failed to parse recent searches JSON; resetting list', err)
+          recentSearches.value = []
+        }
       }
+    } catch (err) {
+      logger.warn('documents store: failed to read recent searches from localStorage', err)
     }
   }
 

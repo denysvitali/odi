@@ -1,0 +1,451 @@
+openapi: 3.1.0
+info:
+  title: ODI API
+  description: |
+    REST API for the ODI (Optical Document Indexer) service.
+    Provides document upload, OCR, indexing, search, and retrieval.
+  version: 0.1.0
+  contact:
+    name: ODI Project
+    url: https://github.com/denysvitali/odi
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      description: Returns 200 OK when the HTTP server is running.
+      security: []
+      responses:
+        "200":
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: Returns 200 when all dependencies (OpenSearch, OCR, Zefix) are reachable.
+      security: []
+      responses:
+        "200":
+          description: All dependencies healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: One or more dependencies unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Exposes `http_requests_total` and `http_request_duration_seconds` in Prometheus text format.
+      security: []
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/search:
+    post:
+      summary: Search indexed documents
+      description: |
+        Executes a search query against the OpenSearch index.
+        Supports pagination via `scrollId`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Raw OpenSearch response; shape depends on the query.
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Search execution failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/documents:
+    get:
+      summary: List documents
+      description: Returns a list of indexed documents (OpenSearch-backed).
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Raw OpenSearch response.
+        "500":
+          description: Query failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/documents/{id}:
+    get:
+      summary: Get a single document
+      description: Retrieves an indexed document by its composite ID (`scanID_sequenceID`).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f-]+_\d+$'
+          example: "550e8400-e29b-41d4-a716-446655440000_1"
+      responses:
+        "200":
+          description: Document found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResponse"
+        "400":
+          description: Invalid document ID format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Retrieval failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/files/{scanID}/{sequenceId}:
+    get:
+      summary: Retrieve raw file
+      description: Returns the original image or PDF page bytes.
+      parameters:
+        - name: scanID
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+        - name: sequenceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: File bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Retrieval failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/thumbnails/{id}:
+    get:
+      summary: Get thumbnail
+      description: |
+        Returns a thumbnail image. If the thumbnail does not exist,
+        it is generated on demand from the original file.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f-]+_\d+$'
+      responses:
+        "200":
+          description: Thumbnail image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Original page not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/thumbnails/process:
+    post:
+      summary: Trigger thumbnail backfill
+      description: |
+        Scans the index for pages missing thumbnails and generates them
+        in the background.
+      responses:
+        "202":
+          description: Backfill started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Backfill failed to start
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/upload:
+    post:
+      summary: Upload documents
+      description: |
+        Accepts a multipart/form-data upload of images or PDFs.
+        Each file is stored, OCR'd, and indexed.
+        Maximum total request size is 200 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: One or more image or PDF files
+      responses:
+        "200":
+          description: Upload processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Bad request (no files, malformed form)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Duplicate document detected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported media type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Processing failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Set `API_TOKEN` on the server and send the value as a
+        `Bearer` token in the `Authorization` header.
+        If `API_TOKEN` is not configured, authentication is skipped.
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "upload failed"
+
+    SearchRequest:
+      type: object
+      properties:
+        searchTerm:
+          type: string
+          example: "invoice"
+        size:
+          type: integer
+          description: Page size (max 1000)
+          maximum: 1000
+          example: 20
+        scrollId:
+          type: string
+          description: Pagination cursor from a previous search response
+
+    Document:
+      type: object
+      properties:
+        scanID:
+          type: string
+        sequenceID:
+          type: integer
+        text:
+          type: string
+        contentDigest:
+          type: string
+        date:
+          type: string
+          format: date-time
+        indexedAt:
+          type: string
+          format: date-time
+        company:
+          $ref: "#/components/schemas/Company"
+        companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Company"
+        dates:
+          type: array
+          items:
+            type: string
+            format: date-time
+        barcode:
+          $ref: "#/components/schemas/Barcode"
+        additionalBarcodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Barcode"
+
+    Company:
+      type: object
+      properties:
+        legalName:
+          type: string
+        name:
+          type: string
+        uri:
+          type: string
+        locality:
+          type: string
+        type:
+          type: string
+        address:
+          type: string
+
+    Barcode:
+      type: object
+      properties:
+        type:
+          type: string
+        data:
+          type: string
+
+    DocumentResponse:
+      type: object
+      properties:
+        _index:
+          type: string
+        _id:
+          type: string
+        _version:
+          type: integer
+        _seq_no:
+          type: integer
+        _primary_term:
+          type: integer
+        found:
+          type: boolean
+        _source:
+          $ref: "#/components/schemas/Document"
+
+    UploadResponse:
+      type: object
+      properties:
+        scanID:
+          type: string
+          format: uuid
+        processed:
+          type: integer
+        duplicates:
+          type: integer
+        failed:
+          type: integer
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadPageResult"
+
+    UploadPageResult:
+      type: object
+      properties:
+        sequenceID:
+          type: integer
+        status:
+          type: string
+          enum: [ok, duplicate, error]
+        duplicateOf:
+          type: string
+          description: Document ID of the existing duplicate
+        error:
+          type: string
+          description: Human-readable error message (opaque)

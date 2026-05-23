@@ -1,4 +1,6 @@
 import { getApiUrl } from '@/lib/config'
+import { STORAGE_KEYS } from '@/lib/constants'
+import { logger } from '@/lib/logger'
 import type { Document, DocumentDetails, SearchResult } from '@/types/documents'
 
 export class ApiError extends Error {
@@ -20,6 +22,27 @@ interface RequestOptions extends RequestInit {
   skipCache?: boolean
 }
 
+function getApiToken(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.API_TOKEN)
+  } catch (err) {
+    logger.warn('api: failed to read API token from localStorage', err)
+    return null
+  }
+}
+
+function buildHeaders(init: RequestInit | undefined): HeadersInit | undefined {
+  const token = getApiToken()
+  if (!token) return init?.headers
+  // Merge existing headers with the Authorization header so callers can still
+  // set Content-Type, Accept, etc. without losing the bearer token.
+  const headers = new Headers(init?.headers ?? {})
+  if (!headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return headers
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { retries = 2, retryDelayMs = 400, ...init } = options
   const base = getApiUrl()
@@ -28,7 +51,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, init)
+      const res = await fetch(url, { ...init, headers: buildHeaders(init) })
       if (!res.ok) {
         const err = new ApiError(
           `Request failed: ${res.status} ${res.statusText}`,
@@ -76,11 +99,19 @@ export const api = {
 
   async getDocumentDetails(id: string, { skipCache = false } = {}): Promise<DocumentDetails> {
     if (!skipCache && detailsCache.has(id)) return detailsCache.get(id)!
-    if (detailsInflight.has(id)) return detailsInflight.get(id)!
+    const existing = detailsInflight.get(id)
+    if (existing) return existing
+    // On error we eagerly drop the inflight entry *before* re-throwing so the
+    // next caller can issue a fresh fetch instead of awaiting the rejected
+    // promise (which would otherwise be cached forever via the Map).
     const p = request<DocumentDetails>(`/documents/${encodeURIComponent(id)}`)
       .then((d) => {
         detailsCache.set(id, d)
         return d
+      })
+      .catch((err) => {
+        detailsInflight.delete(id)
+        throw err
       })
       .finally(() => detailsInflight.delete(id))
     detailsInflight.set(id, p)

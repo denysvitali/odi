@@ -1,3 +1,22 @@
+// Package odicrypt provides authenticated encryption for the ODI document storage
+// backends. It supports two formats:
+//
+//   - Modern format (V1): PBKDF2-SHA-256 with 600,000 iterations, 16-byte random
+//     salt, AES-256-GCM with a random 12-byte nonce.
+//   - Legacy format: PBKDF2-SHA-1 with 4,096 iterations, no salt, AES-256-GCM.
+//     Decryption is supported for backward compatibility; new data is always
+//     encrypted with the modern format.
+//
+// The V1 wire format is:
+//
+//	[version=0x01][salt (16 bytes)][nonce][ciphertext+tag]
+//
+// Because AES-GCM is not a streaming mode, the entire plaintext or ciphertext
+// must fit in memory. This limits the maximum file size to available RAM.
+//
+// Security note: AES-GCM with a random nonce is safe for up to ~2^32
+// encryptions under the same key (or ~64 GB of total ciphertext). Operators
+// who expect to exceed this volume should rotate the passphrase/key.
 package odicrypt
 
 import (

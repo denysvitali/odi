@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { STORAGE_KEYS } from '@/lib/constants'
+import { logger } from '@/lib/logger'
 
 type TagMap = Record<string, string[]>
 
@@ -9,7 +10,9 @@ let loaded = false
 function save() {
   try {
     localStorage.setItem(STORAGE_KEYS.TAGS, JSON.stringify(tagsByDoc.value))
-  } catch {}
+  } catch (err) {
+    logger.warn('useTags: failed to persist tags to localStorage', err)
+  }
 }
 
 function load() {
@@ -18,7 +21,9 @@ function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.TAGS)
     if (raw) tagsByDoc.value = JSON.parse(raw)
-  } catch {}
+  } catch (err) {
+    logger.warn('useTags: failed to read tags from localStorage', err)
+  }
 }
 
 export function useTags() {

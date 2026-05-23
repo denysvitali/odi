@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
@@ -86,8 +88,29 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 
 	page.Reader = bytes.NewReader(pageData)
 	if err := b.idx.Index(ctx, page); err != nil {
+		// Indexing failed after storage succeeded. The blob is now orphaned in
+		// storage: written, but not searchable. Try to roll back.
+		//
+		// TODO: the storage.Storer interface does not currently expose Delete.
+		// Until it does, we cannot reclaim the orphaned blob automatically.
+		// Log loudly with event=orphan_blob so an operator can reconcile.
+		log.WithFields(logrus.Fields{
+			"event":      "orphan_blob",
+			"scanID":     page.ScanID,
+			"sequenceID": page.SequenceID,
+			"digest":     page.ContentDigest,
+			"indexErr":   err.Error(),
+			"deleteErr":  "storage.Storer has no Delete method; manual cleanup required",
+		}).Error("blob stored but indexing failed; orphan in storage")
+
 		if releaseErr := b.idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
-			log.Warnf("scan=%s seq=%d: unable to release content digest after index failure: %v", page.ScanID, page.SequenceID, releaseErr)
+			log.WithFields(logrus.Fields{
+				"event":      "orphan_blob",
+				"scanID":     page.ScanID,
+				"sequenceID": page.SequenceID,
+				"digest":     page.ContentDigest,
+				"releaseErr": releaseErr.Error(),
+			}).Error("unable to release content digest reservation after index failure")
 		}
 		return fmt.Errorf("index page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}

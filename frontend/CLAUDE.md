@@ -24,8 +24,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important Files & Rules
 
 - **README.md**: Provides project overview, setup instructions, and usage examples. Follow the steps there for installing dependencies (`pnpm install`).
-- **.cursor/rules/** or **.cursorrules**: If present, contain custom linting or formatting rules for Cursor/Claude Code. Respect these when editing code.
-- **.github/copilot‑instructions.md**: Gives guidance for Copilot usage; ensure any generated code aligns with these instructions.
 
 ## Development Tips
 

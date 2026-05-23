@@ -5,16 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cenkalti/backoff/v4"
 	rcloneb2 "github.com/rclone/rclone/backend/b2"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
 	"github.com/sirupsen/logrus"
-	"io"
-	"os"
-	"path"
-	"strconv"
-	"strings"
-	"time"
 
 	odicrypt "github.com/denysvitali/odi/pkg/crypt"
 	"github.com/denysvitali/odi/pkg/models"
@@ -25,6 +27,15 @@ import (
 var log = logrus.StandardLogger().WithField("package", "storage/b2")
 var _ model.Storer = (*B2)(nil)
 var _ model.Retriever = (*B2)(nil)
+var _ model.Deleter = (*B2)(nil)
+
+const (
+	defaultChunkSize = 5 * 1024 * 1024 // 5 MiB
+
+	retryInitialInterval = 200 * time.Millisecond
+	retryMaxInterval     = 5 * time.Second
+	retryMaxElapsedTime  = 30 * time.Second
+)
 
 type B2 struct {
 	b2FS       fs.Fs
@@ -32,12 +43,42 @@ type B2 struct {
 	crypt      *odicrypt.OdiCrypt
 }
 
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Network-level and transient HTTP errors
+	return strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "connection refused") ||
+		strings.Contains(err.Error(), "no such host") ||
+		strings.Contains(err.Error(), "temporary") ||
+		strings.Contains(err.Error(), "Too Many Requests")
+}
+
+func withRetry(ctx context.Context, op func() error) error {
+	b := backoff.WithContext(
+		backoff.NewExponentialBackOff(
+			backoff.WithInitialInterval(retryInitialInterval),
+			backoff.WithMaxInterval(retryMaxInterval),
+			backoff.WithMaxElapsedTime(retryMaxElapsedTime),
+		),
+		ctx,
+	)
+	return backoff.RetryNotify(func() error {
+		err := op()
+		if err != nil && !isRetryable(err) {
+			return backoff.Permanent(err)
+		}
+		return err
+	}, b, func(err error, d time.Duration) {
+		log.WithError(err).Warnf("retrying B2 operation in %s", d)
+	})
+}
+
 func (b *B2) Store(ctx context.Context, page models.ScannedPage) (err error) {
 	key := fileName(page.ScanID, page.SequenceID)
 
 	if b.crypt != nil {
-		// The nonce needs to be unique, but not secure.
-		// It should not be reused for more than 64GB of data for the same key.
 		page.Reader, err = b.crypt.Encrypt(page.Reader)
 		if err != nil {
 			return fmt.Errorf("encrypt page %s: %w", key, err)
@@ -53,12 +94,14 @@ func (b *B2) Store(ctx context.Context, page models.ScannedPage) (err error) {
 		return fmt.Errorf("seek start for page %s: %w", key, err)
 	}
 
-	obj, err := b.b2FS.Put(ctx, page.Reader, b.toStorageFile(page, fileSize), &fs.RangeOption{Start: 0, End: fileSize})
-	if err != nil {
-		return fmt.Errorf("put object %s to bucket %s: %w", key, b.bucketName, err)
-	}
-	log.Debugf("obj=%+v", obj)
-	return nil
+	return withRetry(ctx, func() error {
+		obj, err := b.b2FS.Put(ctx, page.Reader, b.toStorageFile(page, fileSize), &fs.RangeOption{Start: 0, End: fileSize})
+		if err != nil {
+			return fmt.Errorf("put object %s to bucket %s: %w", key, b.bucketName, err)
+		}
+		log.Debugf("obj=%+v", obj)
+		return nil
+	})
 }
 
 func fileName(scanID string, sequenceNumber int) string {
@@ -80,11 +123,15 @@ func (b *B2) toStorageFile(page models.ScannedPage, fileSize int64) fs.ObjectInf
 
 func (b *B2) Retrieve(ctx context.Context, scanID string, sequenceId int) (*models.ScannedPage, error) {
 	key := fileName(scanID, sequenceId)
-	obj, err := b.b2FS.NewObject(ctx, key)
-	if err != nil {
+	var obj fs.Object
+	if err := withRetry(ctx, func() error {
+		var err error
+		obj, err = b.b2FS.NewObject(ctx, key)
+		return err
+	}); err != nil {
 		if errors.Is(err, fs.ErrorObjectNotFound) {
 			log.Debugf("object not found in bucket %s: %s", b.bucketName, key)
-			return nil, os.ErrNotExist
+			return nil, model.ErrNotFound
 		}
 		return nil, fmt.Errorf("lookup object %s in bucket %s: %w", key, b.bucketName, err)
 	}
@@ -143,9 +190,10 @@ func (b *B2) StoreThumbnail(ctx context.Context, scanID string, sequenceId int, 
 	}
 	fileSize := int64(buf.Len())
 
-	var readerToStore io.Reader = &buf
+	var readerToStore io.Reader = bytes.NewReader(buf.Bytes())
 	if b.crypt != nil {
-		encryptedReader, err := b.crypt.Encrypt(&buf)
+		// Encrypt from a fresh reader so the entire buffer is consumed.
+		encryptedReader, err := b.crypt.Encrypt(bytes.NewReader(buf.Bytes()))
 		if err != nil {
 			return fmt.Errorf("encrypt thumbnail %s: %w", key, err)
 		}
@@ -185,7 +233,7 @@ func (b *B2) RetrieveThumbnail(ctx context.Context, scanID string, sequenceId in
 	if err != nil {
 		if errors.Is(err, fs.ErrorObjectNotFound) {
 			log.Debugf("thumbnail not found in bucket %s: %s", b.bucketName, key)
-			return nil, os.ErrNotExist
+			return nil, model.ErrNotFound
 		}
 		return nil, fmt.Errorf("lookup thumbnail %s in bucket %s: %w", key, b.bucketName, err)
 	}
@@ -233,6 +281,27 @@ func (b *B2) ListFiles(scanID string) ([]models.ScannedPage, error) {
 	return files, nil
 }
 
+func (b *B2) Delete(ctx context.Context, scanID string, sequenceId int) error {
+	key := fileName(scanID, sequenceId)
+	var obj fs.Object
+	if err := withRetry(ctx, func() error {
+		var err error
+		obj, err = b.b2FS.NewObject(ctx, key)
+		return err
+	}); err != nil {
+		if errors.Is(err, fs.ErrorObjectNotFound) {
+			return model.ErrNotFound
+		}
+		return fmt.Errorf("lookup object %s in bucket %s: %w", key, b.bucketName, err)
+	}
+	if err := withRetry(ctx, func() error {
+		return obj.Remove(ctx)
+	}); err != nil {
+		return fmt.Errorf("remove object %s from bucket %s: %w", key, b.bucketName, err)
+	}
+	return nil
+}
+
 func objToScannedPage(obj fs.DirEntry) models.ScannedPage {
 	s := models.ScannedPage{}
 	fileName := path.Base(obj.Remote())
@@ -256,6 +325,8 @@ type Config struct {
 	Passphrase string
 }
 
+var nonceWarnOnce sync.Once
+
 func New(config Config) (*B2, error) {
 	if config.Account == "" {
 		return nil, fmt.Errorf("account is required")
@@ -277,7 +348,7 @@ func New(config Config) (*B2, error) {
 		configmap.Simple{
 			"account":    config.Account,
 			"key":        config.Key,
-			"chunk_size": "5M",
+			"chunk_size": fmt.Sprintf("%d", defaultChunkSize),
 		},
 	)
 
@@ -296,6 +367,9 @@ func New(config Config) (*B2, error) {
 		if err != nil {
 			return nil, fmt.Errorf("derive encryption key from passphrase for bucket %s: %w", config.BucketName, err)
 		}
+		nonceWarnOnce.Do(func() {
+			log.Warn("AES-GCM random-nonce mode: do not encrypt more than ~64 GB total under a single passphrase without key rotation")
+		})
 	}
 
 	return b, nil

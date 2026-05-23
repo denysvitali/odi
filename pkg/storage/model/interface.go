@@ -2,10 +2,14 @@ package model
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/denysvitali/odi/pkg/models"
 )
+
+// ErrNotFound is returned by storage backends when an object does not exist.
+var ErrNotFound = errors.New("object not found")
 
 type Storer interface {
 	Store(ctx context.Context, page models.ScannedPage) error
@@ -15,9 +19,14 @@ type Retriever interface {
 	Retrieve(ctx context.Context, scanID string, sequenceNumber int) (*models.ScannedPage, error)
 }
 
+type Deleter interface {
+	Delete(ctx context.Context, scanID string, sequenceNumber int) error
+}
+
 type RWStorage interface {
 	Storer
 	Retriever
+	Deleter
 }
 
 type ThumbnailStorer interface {

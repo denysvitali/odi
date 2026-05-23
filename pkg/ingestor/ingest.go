@@ -24,7 +24,18 @@ const (
 	DefaultWorkers = 10
 	// PageScanDelay is the delay between scanning pages to prevent overwhelming the scanner
 	PageScanDelay = 100 * time.Millisecond
+	// DefaultMaxPageBytes bounds how many bytes a single scanned page may
+	// contribute to memory before we give up. 100 MB is comfortably larger
+	// than any sane single scanned page; anything bigger is almost certainly
+	// either a misconfigured scanner or a (malicious) attempt to OOM the
+	// ingestor.
+	DefaultMaxPageBytes int64 = 100 * 1024 * 1024
 )
+
+// MaxPageBytes is the upper bound on how many bytes a single scanned page
+// may contribute to memory. Callers may override this at startup if they
+// have a legitimate reason to ingest larger pages.
+var MaxPageBytes int64 = DefaultMaxPageBytes
 
 // Config configures a local ingestor (storage + in-process OCR/indexing).
 // For remote ingestion use NewWithBackend + NewRemoteBackend.
@@ -85,11 +96,20 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	for scanner.ScanPage() {
 		seq++
 		totalPages.Add(1)
-		b, err := io.ReadAll(scanner.CurrentPage())
+		// Bound the read with LimitReader+1 so we can distinguish "exactly
+		// at the limit" from "larger than the limit".
+		limit := MaxPageBytes
+		lr := io.LimitReader(scanner.CurrentPage(), limit+1)
+		b, err := io.ReadAll(lr)
 		if err != nil {
 			close(pageChan)
 			wg.Wait()
 			return fmt.Errorf("unable to read page %d of scan %s: %w", seq, scanID, err)
+		}
+		if int64(len(b)) > limit {
+			close(pageChan)
+			wg.Wait()
+			return fmt.Errorf("page %d of scan %s exceeds max page size of %d bytes", seq, scanID, limit)
 		}
 		pageChan <- models.ScannedPage{
 			Reader:     bytes.NewReader(b),
@@ -147,6 +167,12 @@ func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string
 
 func (i *Ingestor) processPage(ctx context.Context, pageChan <-chan models.ScannedPage, wg *sync.WaitGroup, failedPages *atomic.Int64) {
 	defer wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("panic", r).Error("ingest worker panic")
+			failedPages.Add(1)
+		}
+	}()
 	for page := range pageChan {
 		if err := i.backend.ProcessPage(ctx, page); err != nil {
 			log.Errorf("unable to process page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)

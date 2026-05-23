@@ -21,7 +21,7 @@ flowchart LR
         OCRC[pkg/ocrclient]
         STOR[pkg/storage]
         ZFX[pkg/zefix]
-        API[pkg/server<br/>REST API]
+        API[internal/server<br/>REST API]
     end
 
     subgraph Data["Local infrastructure"]
@@ -57,29 +57,28 @@ Key points:
 - **The frontend never talks to OpenSearch directly for data.** Searches, listing, and document fetches all go through the backend's REST API. OpenSearch Dashboards is only linked as a convenience "open in Dashboards" target.
 - **OCR runs off-device, on-prem.** The backend POSTs images to an [ocr-server](https://github.com/denysvitali/ocr-server) running on an Android phone on the LAN — ML Kit performs OCR locally.
 - **Blob storage is optional-encrypted.** The B2 backend uses AES-256-GCM with PBKDF2; the filesystem backend is plain and meant for use on an already-encrypted FUSE mount.
-- **Company enrichment.** Extracted text is cross-referenced against a local Zefix (Swiss commercial register) PostgreSQL dump imported by `zefix-tools`.
+- **Company enrichment.** Extracted text is cross-referenced against a local Zefix (Swiss commercial register) PostgreSQL dump imported via `odi zefix-import`.
 
 ## Components
 
-| Directory | Language | Purpose |
+| Path | Language | Purpose |
 |---|---|---|
-| [`backend/`](backend/) | Go | REST API, ingestion, indexing, OCR orchestration, storage |
+| `main.go`, `internal/`, `pkg/` | Go | REST API, ingestion, indexing, OCR orchestration, storage |
 | [`frontend/`](frontend/) | TypeScript · Vue 3 · Vite | Search UI, document viewer |
-| [`zefix-tools/`](zefix-tools/) | Go | `zefix-import` + `zefix-find` — ingest the Swiss commercial register into PostgreSQL and query it |
-| [`helm/odi/`](helm/odi/) | Helm | Deployment chart (backend, frontend, OpenSearch, CloudNativePG) |
+| [`zefix-tools/`](zefix-tools/) | Go | Legacy standalone Zefix CLIs (the same functionality is exposed by `odi zefix-import` / `odi zefix-find`) |
 
 Published container images (on every push to `main` and on tags):
 
-- `ghcr.io/denysvitali/odi-backend`
+- `ghcr.io/denysvitali/odi` (backend)
 - `ghcr.io/denysvitali/odi-frontend`
-- `ghcr.io/denysvitali/odi-zefix-import`
-- `ghcr.io/denysvitali/odi-zefix-find`
+
+The Helm chart lives in a separate repository.
 
 ## Prerequisites
 
 | Tool | Purpose |
 |---|---|
-| Go 1.26+ | `backend` and `zefix-tools` (workspace pins 1.26.0) |
+| Go 1.26+ | Backend build / tests |
 | pnpm | Frontend build |
 | Docker + Compose | OpenSearch, OpenSearch Dashboards, PostgreSQL |
 | [ocr-server](https://github.com/denysvitali/ocr-server) | Android ML Kit OCR endpoint reachable from the backend |
@@ -90,37 +89,33 @@ Published container images (on every push to `main` and on tags):
 ```bash
 # 1. Configure shared secrets
 cp .env.example .env
-# set OPENSEARCH_ADMIN_PASSWORD etc.
+$EDITOR .env            # at minimum set OPENSEARCH_ADMIN_PASSWORD and POSTGRES_PASSWORD
 
 # 2. Bring up infrastructure (OpenSearch, Dashboards, PostgreSQL)
 make docker-up
 
-# 3. Build everything
+# 3. Build everything (Go binary + frontend bundle)
 make build
 
 # 4. Import the Zefix register (optional — enables company matching)
-# See zefix-tools/README.md.
+#    See zefix-tools/README.md or run `go run . zefix-import --help`.
 
-# 5. Configure the backend
-cp backend/.env.example backend/.env
-$EDITOR backend/.env
+# 5. Run the API
+go run . serve
 
-# 6. Run the API
-cd backend && go run . serve
-
-# 7. Index existing material
+# 6. Index existing material
 go run . index /path/to/scans    # image directory
 go run . pdf   /path/to/pdfs     # PDFs
 
-# 8. Run the frontend
+# 7. Run the frontend
 cd frontend && pnpm install && pnpm run dev
 ```
 
 The SPA loads runtime settings from `frontend/public/settings.json` (or `settings.json.tpl` in Docker). It needs two values: `apiUrl` (backend REST) and `opensearchUrl` (OpenSearch Dashboards, for deep links only).
 
-## Backend CLI
+## CLI
 
-The backend is a single Cobra CLI (`go run .` or the `odi-backend` binary):
+The Go binary (`odi`, or `go run .`) is a single Cobra CLI:
 
 | Command | What it does |
 |---|---|
@@ -131,13 +126,15 @@ The backend is a single Cobra CLI (`go run .` or the `odi-backend` binary):
 | `reindex` | Re-run indexing against existing blobs |
 | `ocr` / `ocrtext` | Run OCR and extract text only |
 | `decrypt` | Decrypt a stored encrypted blob |
+| `zefix-import` | Import a Zefix JSON dump into PostgreSQL |
+| `zefix-find` | Look up a company by name in the local Zefix database |
 | `version` | Show the build version |
 
 ## Make Targets
 
 ```text
-make build        Build backend + zefix-tools + frontend
-make test         go test (both modules) + pnpm test
+make build        Build the Go binary and the frontend bundle
+make test         go test ./... + pnpm test
 make lint         golangci-lint + pnpm lint
 make docker-up    Start OpenSearch + Dashboards + PostgreSQL
 make docker-down  Stop all containers
@@ -147,34 +144,40 @@ make docker-down  Stop all containers
 
 ```text
 odi/
-├── backend/              Go service — REST API, ingestion, indexing
-│   ├── internal/cli/     Cobra commands
-│   └── pkg/              indexer, ocrclient, storage, server, zefix, crypt
+├── main.go               CLI entry point
+├── internal/             cli/ (Cobra commands) + server/ (Gin REST API)
+├── pkg/                  indexer, ingestor, ocrclient, storage, zefix, crypt, ...
 ├── frontend/             Vue 3 + Vite SPA
-├── zefix-tools/          zefix-import / zefix-find (PostgreSQL loader + lookup)
-├── helm/odi/             Helm chart (backend, frontend, OpenSearch, CNPG)
+├── zefix-tools/          Legacy standalone Zefix CLIs (kept for reference)
 ├── docker-compose.yml    OpenSearch, Dashboards, PostgreSQL
 ├── Makefile              Unified build/test/lint targets
-├── go.work               Go workspace (backend + zefix-tools)
+├── Dockerfile            Distroless backend image
 └── renovate.json         Grouped dependency updates
 ```
 
 ## Configuration
 
-The backend is fully env-driven. See [`backend/README.md`](backend/README.md) for the full list — the essentials:
+The backend is fully env-driven. See [`.env.example`](.env.example) for the complete list — the essentials:
 
 | Variable | Purpose |
 |---|---|
 | `OPENSEARCH_ADDR` / `_USERNAME` / `_PASSWORD` / `_SKIP_TLS` / `_INDEX` | OpenSearch connection |
-| `STORAGE_TYPE` | `b2`, `filesystem`, or `rclone` |
+| `STORAGE_TYPE` | `b2` or `filesystem` |
 | `B2_ACCOUNT` / `B2_KEY` / `B2_BUCKET_NAME` / `B2_PASSPHRASE` | Backblaze B2 (encrypted) |
 | `FS_PATH` | Filesystem storage root |
 | `OCR_API_ADDR` / `OCR_API_CA_PATH` | OCR service |
 | `ZEFIX_DSN` | PostgreSQL DSN for Zefix lookups |
 | `SCANNER_NAME` | AirScan hostname |
 | `CORS_ALLOWED_ORIGINS` | Frontend origins (default `http://localhost:5173`) |
+| `API_TOKEN` | Optional bearer token (see below) |
+| `TLS_CERT_PATH` / `TLS_KEY_PATH` | Optional inline TLS termination |
+| `LOG_LEVEL` | `debug` / `info` / `warn` / `error` |
 
 Values prefixed with `keychain:` are looked up via the OS keychain (e.g. `B2_KEY=keychain:b2-key`).
+
+### Authentication
+
+Set `API_TOKEN=<random-secret>` to require bearer-token auth on all `/api/v1/*` routes. Clients must then send `Authorization: Bearer <random-secret>` on every request. If `API_TOKEN` is unset, the server runs unauthenticated — only safe for local development.
 
 ## Privacy
 
@@ -187,6 +190,6 @@ Values prefixed with `keychain:` are looked up via the OS keychain (e.g. `B2_KEY
 
 ## License
 
-MIT. See [`backend/LICENSE.txt`](backend/LICENSE.txt) and [`frontend/LICENSE.txt`](frontend/LICENSE.txt).
+MIT. See [`LICENSE.txt`](LICENSE.txt) (where present) and [`frontend/LICENSE.txt`](frontend/LICENSE.txt).
 
 Security reports → the address on [denv.it](https://denv.it).

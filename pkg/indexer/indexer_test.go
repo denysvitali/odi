@@ -133,7 +133,7 @@ func TestReserveContentDigestReturnsExistingDocumentOnConflict(t *testing.T) {
 				t.Fatalf("unexpected method: %s", r.Method)
 			}
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"_source":{"documentID":"existing_7","createdAt":"2026-04-21T00:00:00Z"}}`))
+			_, _ = w.Write([]byte(`{"found":true,"_seq_no":3,"_primary_term":1,"_source":{"documentID":"existing_7","createdAt":"2026-04-21T00:00:00Z"}}`))
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

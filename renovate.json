@@ -38,12 +38,6 @@
       "groupSlug": "zefix-tools"
     },
     {
-      "description": "Group Helm chart dependency updates into one PR",
-      "matchFileNames": ["helm/**"],
-      "groupName": "helm chart dependencies",
-      "groupSlug": "helm"
-    },
-    {
       "description": "Group all GitHub Actions updates (.github/workflows) into one PR",
       "matchManagers": ["github-actions"],
       "groupName": "github-actions",

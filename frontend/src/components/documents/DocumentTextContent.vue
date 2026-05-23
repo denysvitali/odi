@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import DOMPurify from 'dompurify'
 import { Copy, Check, BookOpen, Type } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { logger } from '@/lib/logger'
 
 interface Props {
   text: string
@@ -19,7 +21,7 @@ const copyToClipboard = async () => {
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
   } catch (err) {
-    console.error('Failed to copy:', err)
+    logger.error('failed to copy text to clipboard', err)
   }
 }
 
@@ -36,13 +38,22 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// Safe because we escape all content ourselves and only inject <mark> tags.
+// We build the highlighted HTML ourselves (escaping content + injecting <mark>
+// tags), then run it through DOMPurify as a defense-in-depth measure. Only
+// <mark> tags are permitted in the output — everything else is stripped.
 const renderedText = computed(() => {
   const escaped = escapeHtml(props.text)
   const needle = props.find?.trim()
-  if (!needle) return escaped
-  const re = new RegExp(escapeRegex(needle), 'gi')
-  return escaped.replace(re, (m) => `<mark class="search-highlight">${m}</mark>`)
+  const html = !needle
+    ? escaped
+    : escaped.replace(
+        new RegExp(escapeRegex(needle), 'gi'),
+        (m) => `<mark class="search-highlight">${m}</mark>`
+      )
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['mark'],
+    ALLOWED_ATTR: []
+  })
 })
 
 const matchCount = computed(() => {
@@ -64,6 +75,7 @@ const matchCount = computed(() => {
         <Button
           variant="outline"
           size="sm"
+          role="button"
           :aria-pressed="reading"
           :aria-label="reading ? 'Switch to monospace view' : 'Switch to reading view'"
           @click="reading = !reading"

@@ -28,6 +28,10 @@ import (
 	"github.com/denysvitali/odi/pkg/thumbnailer"
 )
 
+// maxSearchSize is the hard upper bound on the page size accepted by the
+// search endpoints. Larger values are rejected with HTTP 400.
+const maxSearchSize = 1000
+
 const (
 	serverReadTimeout  = 30 * time.Second
 	serverWriteTimeout = 5 * time.Minute
@@ -44,15 +48,58 @@ type Server struct {
 	storage              model.RWStorage
 	indexer              *indexer.Indexer
 	thumbnailProcessMu   sync.Mutex
+
+	// apiToken, if non-empty, is required as a Bearer token on /api/v1/*.
+	apiToken string
+
+	// tlsCertPath / tlsKeyPath, if both set, switch the server to HTTPS.
+	tlsCertPath string
+	tlsKeyPath  string
 }
 
 var log = logrus.StandardLogger().WithField("package", "server")
+
+// logStreamError records a mid-stream io.Copy failure. By the time we hit
+// this path the HTTP headers (and likely some body bytes) have already been
+// flushed to the client, so we cannot rewrite the status — we record an
+// error log enriched with the request context so operators can correlate
+// the partial response with the failure.
+func logStreamError(c *gin.Context, err error, msg string) {
+	if err == nil {
+		return
+	}
+	log.WithFields(logrus.Fields{
+		"request_id": RequestIDFromContext(c.Request.Context()),
+		"path":       c.Request.URL.Path,
+		"route":      c.FullPath(),
+		"status":     c.Writer.Status(),
+		"method":     c.Request.Method,
+	}).WithError(err).Error(msg)
+}
 
 type ServerOption func(*Server)
 
 func WithIndexer(idx *indexer.Indexer) ServerOption {
 	return func(s *Server) {
 		s.indexer = idx
+	}
+}
+
+// WithAPIToken configures the bearer token required on /api/v1 routes. An
+// empty token leaves authentication disabled (a startup warning is logged
+// in that case).
+func WithAPIToken(token string) ServerOption {
+	return func(s *Server) {
+		s.apiToken = token
+	}
+}
+
+// WithTLS configures the certificate and key paths used to serve HTTPS. If
+// either path is empty, the server falls back to plain HTTP.
+func WithTLS(certPath, keyPath string) ServerOption {
+	return func(s *Server) {
+		s.tlsCertPath = certPath
+		s.tlsKeyPath = keyPath
 	}
 }
 
@@ -78,6 +125,7 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 
 	var transport http.RoundTripper
 	if s.osInsecureSkipVerify {
+		log.Warn("OpenSearch TLS verification disabled — do not use in production")
 		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	} else {
 		transport = http.DefaultTransport
@@ -120,10 +168,16 @@ func (s *Server) verifyOpensearch(ctx context.Context, osIndex string) error {
 	return nil
 }
 
-func (s *Server) Run(addr string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s.startThumbnailProcessor(ctx)
+// Run starts the HTTP server and blocks until the parent context is
+// cancelled or a SIGINT/SIGTERM is received. On shutdown it cancels the
+// background context used by long-running goroutines (e.g. the thumbnail
+// processor) and calls srv.Shutdown with a 30s deadline.
+func (s *Server) Run(ctx context.Context, addr string) error {
+	// Background context for in-process workers — cancelled on signal so they
+	// stop together with the HTTP server.
+	bgCtx, cancelBg := context.WithCancel(ctx)
+	defer cancelBg()
+	s.startThumbnailProcessor(bgCtx)
 
 	srv := &http.Server{
 		Addr:         addr,
@@ -131,7 +185,48 @@ func (s *Server) Run(addr string) error {
 		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: serverWriteTimeout,
 	}
-	return srv.ListenAndServe()
+
+	tlsEnabled := s.tlsCertPath != "" && s.tlsKeyPath != ""
+
+	errCh := make(chan error, 1)
+	go func() {
+		var err error
+		if tlsEnabled {
+			log.Infof("listening on https://%s", addr)
+			err = srv.ListenAndServeTLS(s.tlsCertPath, s.tlsKeyPath)
+		} else {
+			log.Infof("listening on http://%s", addr)
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		log.Infof("shutdown signal received: %v", ctx.Err())
+	}
+
+	// Stop background goroutines first so they observe the cancellation
+	// before we wait for in-flight HTTP requests to drain.
+	cancelBg()
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelShutdown()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("graceful shutdown failed: %v", err)
+		return err
+	}
+	// Drain the goroutine's final result.
+	if err := <-errCh; err != nil {
+		return err
+	}
+	return nil
 }
 
 func corsOrigins() []string {
@@ -146,8 +241,24 @@ func (s *Server) handleHealthz(c *gin.Context) {
 }
 
 func (s *Server) initRoutes() {
+	// Request ID must run before any other middleware that wants to log it.
+	s.e.Use(requestIDMiddleware())
+	s.e.Use(metricsMiddleware())
 	s.e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/healthz", "/readyz"},
+		SkipPaths: []string{"/healthz", "/readyz", "/metrics"},
+		Formatter: func(p gin.LogFormatterParams) string {
+			reqID, _ := p.Keys["request_id"].(string)
+			logrus.WithFields(logrus.Fields{
+				"package":    "server",
+				"request_id": reqID,
+				"method":     p.Method,
+				"path":       p.Path,
+				"status":     p.StatusCode,
+				"latency":    p.Latency.String(),
+				"client_ip":  p.ClientIP,
+			}).Info("http request")
+			return ""
+		},
 	}))
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
@@ -158,8 +269,14 @@ func (s *Server) initRoutes() {
 
 	s.e.GET("/healthz", s.handleHealthz)
 	s.e.GET("/readyz", s.handleReadyz)
+	s.e.GET("/metrics", metricsHandler())
 
 	g := s.e.Group("/api/v1")
+	if s.apiToken == "" {
+		log.Warn("API_TOKEN not set — server running without authentication")
+	} else {
+		g.Use(authMiddleware(s.apiToken))
+	}
 	g.POST("/search", s.handleSearch)
 	g.GET("/documents/:id", s.handleGetDocument)
 	g.GET("/documents", s.handleGetDocuments)
@@ -205,7 +322,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 		c.Header("Content-Type", "application/json")
 		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
 		if err != nil {
-			log.Errorf("unable to stream scroll response (scrollId=%q): %v", searchRequest.ScrollId, err)
+			logStreamError(c, err, fmt.Sprintf("unable to stream scroll response (scrollId=%q)", searchRequest.ScrollId))
 		}
 		scrollResp.Inspect().Response.Body.Close()
 		return
@@ -215,6 +332,10 @@ func (s *Server) handleSearch(c *gin.Context) {
 	size := searchRequest.Size
 	if size <= 0 {
 		size = 50
+	}
+	if size > maxSearchSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("size exceeds maximum of %d", maxSearchSize)})
+		return
 	}
 
 	searchContent := map[string]any{
@@ -262,7 +383,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
 	if err != nil {
-		log.Errorf("unable to stream search response (term=%q): %v", searchRequest.SearchTerm, err)
+		logStreamError(c, err, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
 	}
 	searchResp.Inspect().Response.Body.Close()
 }
@@ -276,7 +397,7 @@ func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr str
 
 	page, err := s.storage.Retrieve(c.Request.Context(), scanID, int(sequenceId))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
 			log.Debugf("page not found: scan=%s seq=%d", scanID, sequenceId)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": fmt.Sprintf("page not found: scan=%s seq=%d", scanID, sequenceId),
@@ -292,7 +413,7 @@ func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr str
 	c.Status(http.StatusOK)
 	_, err = io.Copy(c.Writer, page.Reader)
 	if err != nil {
-		log.Errorf("unable to stream page scan=%s seq=%d: %v", scanID, sequenceId, err)
+		logStreamError(c, err, fmt.Sprintf("unable to stream page scan=%s seq=%d", scanID, sequenceId))
 		return
 	}
 }
@@ -346,7 +467,7 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 				c.Status(http.StatusOK)
 				_, err = io.Copy(c.Writer, thumb.Reader)
 				if err != nil {
-					log.Errorf("unable to stream thumbnail: %v", err)
+					logStreamError(c, err, "unable to stream thumbnail")
 				}
 				return
 			}
@@ -356,7 +477,7 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 		log.Debugf("generating thumbnail for %s_%d", scanID, sequenceId)
 		page, err := s.storage.Retrieve(ctx, scanID, int(sequenceId))
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "page not found"})
 				return
 			}
@@ -400,7 +521,7 @@ func (s *Server) handleGetThumbnail(c *gin.Context) {
 		}
 		_, err = io.Copy(c.Writer, thumbReader)
 		if err != nil {
-			log.Errorf("unable to stream generated thumbnail: %v", err)
+			logStreamError(c, err, "unable to stream generated thumbnail")
 		}
 		return
 	}
@@ -488,7 +609,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		c.Header("Content-Type", "application/json")
 		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
 		if err != nil {
-			log.Errorf("unable to stream documents response (scroll): %v", err)
+			logStreamError(c, err, "unable to stream documents response (scroll)")
 		}
 		scrollResp.Inspect().Response.Body.Close()
 		return
@@ -501,18 +622,28 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 			size = parsed
 		}
 	}
+	if size > maxSearchSize {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("size exceeds maximum of %d", maxSearchSize)})
+		return
+	}
 
 	var dateFrom, dateTo *time.Time
 	if dateFromStr := c.Query("date_from"); dateFromStr != "" {
-		if t, err := time.Parse("2006-01-02", dateFromStr); err == nil {
-			dateFrom = &t
+		t, err := time.Parse("2006-01-02", dateFromStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid date_from: %v", err)})
+			return
 		}
+		dateFrom = &t
 	}
 	if dateToStr := c.Query("date_to"); dateToStr != "" {
-		if t, err := time.Parse("2006-01-02", dateToStr); err == nil {
-			endOfDay := t.Add(24*time.Hour - time.Second)
-			dateTo = &endOfDay
+		t, err := time.Parse("2006-01-02", dateToStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid date_to: %v", err)})
+			return
 		}
+		endOfDay := t.Add(24*time.Hour - time.Second)
+		dateTo = &endOfDay
 	}
 
 	hasDateFilter := dateFrom != nil || dateTo != nil
@@ -567,7 +698,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
 	if err != nil {
-		log.Errorf("unable to stream documents response: %v", err)
+		logStreamError(c, err, "unable to stream documents response")
 	}
 	searchResp.Inspect().Response.Body.Close()
 }

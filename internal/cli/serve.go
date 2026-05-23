@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os/signal"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -13,7 +15,10 @@ import (
 )
 
 const (
-	FlagListenAddr = "listen-addr"
+	FlagListenAddr  = "listen-addr"
+	FlagAPIToken    = "api-token"
+	FlagTLSCertPath = "tls-cert-path"
+	FlagTLSKeyPath  = "tls-key-path"
 )
 
 var serveCmd = &cobra.Command{
@@ -33,6 +38,18 @@ The server provides the following endpoints:
 func init() {
 	serveCmd.Flags().StringP(FlagListenAddr, "L", "0.0.0.0:8085", "Address to listen on")
 	_ = viper.BindPFlag(FlagListenAddr, serveCmd.Flags().Lookup(FlagListenAddr))
+
+	serveCmd.Flags().String(FlagAPIToken, "", "Bearer token required on /api/v1 routes; if empty, authentication is disabled (env: API_TOKEN)")
+	_ = viper.BindPFlag(FlagAPIToken, serveCmd.Flags().Lookup(FlagAPIToken))
+	bindEnv(FlagAPIToken, "API_TOKEN")
+
+	serveCmd.Flags().String(FlagTLSCertPath, "", "Path to TLS certificate file; if both cert and key are set, the server uses HTTPS (env: TLS_CERT_PATH)")
+	_ = viper.BindPFlag(FlagTLSCertPath, serveCmd.Flags().Lookup(FlagTLSCertPath))
+	bindEnv(FlagTLSCertPath, "TLS_CERT_PATH")
+
+	serveCmd.Flags().String(FlagTLSKeyPath, "", "Path to TLS key file; if both cert and key are set, the server uses HTTPS (env: TLS_KEY_PATH)")
+	_ = viper.BindPFlag(FlagTLSKeyPath, serveCmd.Flags().Lookup(FlagTLSKeyPath))
+	bindEnv(FlagTLSKeyPath, "TLS_KEY_PATH")
 
 	AddOpenSearchFlags(serveCmd)
 	AddStorageFlags(serveCmd)
@@ -97,6 +114,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	listenAddr := GetString(cmd, FlagListenAddr)
 
+	serverOpts = append(serverOpts,
+		server.WithAPIToken(GetString(cmd, FlagAPIToken)),
+		server.WithTLS(GetString(cmd, FlagTLSCertPath), GetString(cmd, FlagTLSKeyPath)),
+	)
+
 	s, err := server.New(
 		GetString(cmd, FlagOsAddr),
 		GetString(cmd, FlagOsUsername),
@@ -111,8 +133,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// signal.NotifyContext returns a context that is cancelled on the first
+	// SIGINT / SIGTERM. Server.Run blocks on that context for graceful
+	// shutdown.
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	ui.PrintSuccessf("Starting server on %s", listenAddr)
-	err = s.Run(listenAddr)
+	err = s.Run(ctx, listenAddr)
 	if err != nil {
 		log.Fatalf("Server error: %v", err)
 	}

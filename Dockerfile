@@ -20,5 +20,12 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=builder /out/odi /usr/local/bin/odi
 USER nonroot:nonroot
 EXPOSE 8085
+
+# Distroless static images ship no shell, curl, wget, or netcat, so a
+# meaningful Docker HEALTHCHECK can't be expressed here. Orchestrators
+# (Kubernetes, Nomad, ...) should probe the HTTP `/healthz` endpoint
+# (and `/readyz`) directly — both are exposed by `odi serve`.
+HEALTHCHECK NONE
+
 ENTRYPOINT ["/usr/local/bin/odi"]
 CMD ["serve"]

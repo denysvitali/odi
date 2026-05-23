@@ -7,7 +7,9 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"sync"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"github.com/denysvitali/odi/pkg/models"
@@ -31,6 +33,8 @@ func validateScanID(scanID string) error {
 
 var log = logrus.StandardLogger().WithField("package", "storage/fs")
 
+var plaintextWarnOnce sync.Once
+
 type Fs struct {
 	dir string
 }
@@ -42,6 +46,9 @@ func (fs *Fs) Retrieve(ctx context.Context, scanID string, sequenceNumber int) (
 	p := path.Join(fs.dir, scanID, fmt.Sprintf("%d.jpg", sequenceNumber))
 	f, err := os.Open(p)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, model.ErrNotFound
+		}
 		return nil, fmt.Errorf("open file %s: %w", p, err)
 	}
 	return &models.ScannedPage{
@@ -56,33 +63,71 @@ func (fs *Fs) Store(ctx context.Context, page models.ScannedPage) error {
 		return err
 	}
 	dir := path.Join(fs.dir, page.ScanID)
-	// Check if directory exists
-	_, err := os.Stat(dir)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0700)
-		if err != nil {
-			return fmt.Errorf("create directory %s for scan %s: %w", dir, page.ScanID, err)
-		}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create directory %s for scan %s: %w", dir, page.ScanID, err)
 	}
 
-	p := path.Join(dir, fmt.Sprintf("%d.jpg", page.SequenceID))
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	finalPath := path.Join(dir, fmt.Sprintf("%d.jpg", page.SequenceID))
+	tmpPath := finalPath + ".tmp." + uuid.New().String()
+
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return fmt.Errorf("create file %s for scan %s page %d: %w", p, page.ScanID, page.SequenceID, err)
+		return fmt.Errorf("create temp file %s for scan %s page %d: %w", tmpPath, page.ScanID, page.SequenceID, err)
 	}
-	defer f.Close()
-	if _, err := io.Copy(f, page.Reader); err != nil {
-		return fmt.Errorf("write page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, p, err)
+
+	written, copyErr := io.Copy(f, page.Reader)
+	syncErr := f.Sync()
+	closeErr := f.Close()
+
+	if copyErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("write page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, tmpPath, copyErr)
 	}
+	if syncErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, tmpPath, syncErr)
+	}
+	if closeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp file for page %d of scan %s: %w", page.SequenceID, page.ScanID, closeErr)
+	}
+
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename %s -> %s for page %d of scan %s: %w", tmpPath, finalPath, page.SequenceID, page.ScanID, err)
+	}
+
+	// Sync the directory to ensure the rename is durable.
+	dirFile, err := os.Open(dir)
+	if err == nil {
+		dirFile.Sync()
+		dirFile.Close()
+	}
+
 	if _, err := page.Reader.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind reader for page %d of scan %s: %w", page.SequenceID, page.ScanID, err)
 	}
-	log.Debugf("Created file %s", f.Name())
+	log.Debugf("Created file %s (%d bytes)", finalPath, written)
+	return nil
+}
+
+func (fs *Fs) Delete(ctx context.Context, scanID string, sequenceNumber int) error {
+	if err := validateScanID(scanID); err != nil {
+		return err
+	}
+	p := path.Join(fs.dir, scanID, fmt.Sprintf("%d.jpg", sequenceNumber))
+	if err := os.Remove(p); err != nil {
+		if os.IsNotExist(err) {
+			return model.ErrNotFound
+		}
+		return fmt.Errorf("remove file %s: %w", p, err)
+	}
 	return nil
 }
 
 var _ model.Storer = (*Fs)(nil)
 var _ model.Retriever = (*Fs)(nil)
+var _ model.Deleter = (*Fs)(nil)
 
 func New(dir string) (*Fs, error) {
 	_, err := os.Stat(dir)
@@ -92,6 +137,10 @@ func New(dir string) (*Fs, error) {
 			return nil, fmt.Errorf("unable to create storage directory: %w", err)
 		}
 	}
+
+	plaintextWarnOnce.Do(func() {
+		log.Warn("filesystem storage stores files in plaintext; use a FUSE-encrypted mount for at-rest encryption")
+	})
 
 	fs := &Fs{
 		dir: dir,

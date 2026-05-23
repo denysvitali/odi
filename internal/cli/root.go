@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -96,7 +97,7 @@ func initConfig() {
 	if err := loadConfigFile(explicit); err != nil {
 		// Fatal only for an explicitly requested file that failed to load.
 		if explicit != "" {
-			panic(err)
+			logrus.WithError(err).Fatal("failed to load config file")
 		}
 	}
 }

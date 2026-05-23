@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { Company } from '@/types/documents'
+import { logger } from '@/lib/logger'
 
 interface Props {
   company: Company
@@ -28,7 +29,9 @@ const copyAddress = async () => {
     await navigator.clipboard.writeText(addressLine.value)
     copied.value = true
     setTimeout(() => (copied.value = false), 2000)
-  } catch {}
+  } catch (err) {
+    logger.warn('DocumentCompanyCard: failed to copy address to clipboard', err)
+  }
 }
 </script>
 

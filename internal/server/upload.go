@@ -34,7 +34,54 @@ type uploadResponse struct {
 const (
 	maxUploadSize    = 200 << 20 // 200 MB total
 	uploadMaxWorkers = 8         // cap per-upload in-flight file processing
+	sniffBufferSize  = 512       // bytes used for MIME sniffing
 )
+
+// allowedUploadMimeTypes enumerates the MIME types accepted by the upload
+// endpoint. Detected via net/http.DetectContentType. Exposed as a package-level
+// var so it can be extended without modifying the handler logic.
+var allowedUploadMimeTypes = map[string]struct{}{
+	"image/png":       {},
+	"image/jpeg":      {},
+	"image/webp":      {},
+	"image/heic":      {},
+	"image/heif":      {},
+	"image/tiff":      {},
+	"application/pdf": {},
+}
+
+// User-facing error strings — kept opaque so internal subsystem names don't
+// leak into HTTP responses. The corresponding detail is always logged.
+const (
+	userErrUploadFailed     = "upload failed"
+	userErrDuplicateDoc     = "duplicate document"
+	userErrProcessingFailed = "document processing failed"
+	userErrUnsupportedMedia = "unsupported media type"
+)
+
+// detectMime reads up to sniffBufferSize bytes from r, detects the MIME type
+// with net/http.DetectContentType, and returns the detected type along with a
+// new reader that yields the original byte stream (sniff bytes prepended via
+// io.MultiReader, so the upload body is not consumed). Exposed for tests.
+func detectMime(r io.Reader) (string, io.Reader, error) {
+	buf := make([]byte, sniffBufferSize)
+	n, err := io.ReadFull(r, buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "", nil, err
+	}
+	buf = buf[:n]
+	mime := http.DetectContentType(buf)
+	if idx := bytes.IndexByte([]byte(mime), ';'); idx >= 0 {
+		mime = mime[:idx]
+	}
+	return mime, io.MultiReader(bytes.NewReader(buf), r), nil
+}
+
+// isAllowedMime returns true when the detected MIME type is in the allow-list.
+func isAllowedMime(mime string) bool {
+	_, ok := allowedUploadMimeTypes[mime]
+	return ok
+}
 
 func (s *Server) handleUpload(c *gin.Context) {
 	if s.indexer == nil {
@@ -77,15 +124,53 @@ func (s *Server) handleUpload(c *gin.Context) {
 	log.Infof("upload started: scan=%s files=%d", scanID, len(files))
 	results := make([]uploadPageResult, len(files))
 
+	// Pre-scan every file so we can reject the whole request with 415 before
+	// performing any storage work if even one file is of a disallowed type.
+	type validatedFile struct {
+		fh   *multipart.FileHeader
+		mime string
+	}
+	validated := make([]validatedFile, len(files))
+	for i, fh := range files {
+		f, err := fh.Open()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to open uploaded file"})
+			log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q for mime sniff: %v", scanID, sequenceOffset+i+1, fh.Filename, err)
+			return
+		}
+		buf := make([]byte, sniffBufferSize)
+		n, err := io.ReadFull(f, buf)
+		f.Close()
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to read uploaded file"})
+			log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q for mime sniff: %v", scanID, sequenceOffset+i+1, fh.Filename, err)
+			return
+		}
+		mime := http.DetectContentType(buf[:n])
+		if idx := bytes.IndexByte([]byte(mime), ';'); idx >= 0 {
+			mime = mime[:idx]
+		}
+		if !isAllowedMime(mime) {
+			log.Warnf("upload scan=%s page=%d: rejecting file %q with disallowed mime %q", scanID, sequenceOffset+i+1, fh.Filename, mime)
+			c.JSON(http.StatusUnsupportedMediaType, gin.H{
+				"error":    userErrUnsupportedMedia,
+				"filename": fh.Filename,
+				"detected": mime,
+			})
+			return
+		}
+		validated[i] = validatedFile{fh: fh, mime: mime}
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	sem := make(chan struct{}, uploadMaxWorkers)
 
-	for i, fh := range files {
+	for i, vf := range validated {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(idx int, fileHeader *multipart.FileHeader) {
+		go func(idx int, fileHeader *multipart.FileHeader, detectedMime string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -96,7 +181,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			f, err := fileHeader.Open()
 			if err != nil {
 				result.Status = "failed"
-				result.Error = err.Error()
+				result.Error = userErrUploadFailed
 				log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
@@ -108,7 +193,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if _, err := io.Copy(&buf, f); err != nil {
 				f.Close()
 				result.Status = "failed"
-				result.Error = err.Error()
+				result.Error = userErrUploadFailed
 				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
 				mu.Lock()
 				results[idx] = result
@@ -129,8 +214,8 @@ func (s *Server) handleUpload(c *gin.Context) {
 			reservation, err := s.indexer.ReserveContentDigest(c.Request.Context(), digest, page.ID())
 			if err != nil {
 				result.Status = "failed"
-				result.Error = "dedupe: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to reserve content digest: %v", scanID, result.SequenceID, err)
+				result.Error = userErrUploadFailed
+				log.Errorf("upload scan=%s page=%d: dedupe reservation failed: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -139,6 +224,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if !reservation.Reserved {
 				result.Status = "duplicate"
 				result.DuplicateOf = reservation.ExistingDocumentID
+				result.Error = userErrDuplicateDoc
 				log.Infof("upload scan=%s page=%d: duplicate of %s", scanID, result.SequenceID, reservation.ExistingDocumentID)
 				mu.Lock()
 				results[idx] = result
@@ -151,8 +237,8 @@ func (s *Server) handleUpload(c *gin.Context) {
 					log.Warnf("upload scan=%s page=%d: unable to release content digest after storage failure: %v", scanID, result.SequenceID, releaseErr)
 				}
 				result.Status = "failed"
-				result.Error = "storage: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to store page: %v", scanID, result.SequenceID, err)
+				result.Error = userErrUploadFailed
+				log.Errorf("upload scan=%s page=%d: storage failure: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -161,7 +247,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 
 			if _, err := reader.Seek(0, io.SeekStart); err != nil {
 				result.Status = "failed"
-				result.Error = "seek: " + err.Error()
+				result.Error = userErrUploadFailed
 				log.Errorf("upload scan=%s page=%d: unable to seek after storage: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
@@ -175,8 +261,8 @@ func (s *Server) handleUpload(c *gin.Context) {
 					log.Warnf("upload scan=%s page=%d: unable to release content digest after index failure: %v", scanID, result.SequenceID, releaseErr)
 				}
 				result.Status = "failed"
-				result.Error = "index: " + err.Error()
-				log.Errorf("upload scan=%s page=%d: unable to index page: %v", scanID, result.SequenceID, err)
+				result.Error = userErrProcessingFailed
+				log.Errorf("upload scan=%s page=%d: indexer failure: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -195,7 +281,8 @@ func (s *Server) handleUpload(c *gin.Context) {
 			mu.Lock()
 			results[idx] = result
 			mu.Unlock()
-		}(i, fh)
+			_ = detectedMime
+		}(i, vf.fh, vf.mime)
 	}
 
 	wg.Wait()
@@ -215,7 +302,15 @@ func (s *Server) handleUpload(c *gin.Context) {
 	}
 
 	log.Infof("upload finished: scan=%s processed=%d duplicates=%d failed=%d", scanID, processed, duplicates, failed)
-	c.JSON(http.StatusOK, uploadResponse{
+
+	// If every page was a duplicate, surface that as a 409 Conflict so clients
+	// can distinguish a fully-duplicate batch from a partial-success upload.
+	status := http.StatusOK
+	if processed == 0 && failed == 0 && duplicates > 0 {
+		status = http.StatusConflict
+	}
+
+	c.JSON(status, uploadResponse{
 		ScanID:     scanID,
 		Processed:  processed,
 		Duplicates: duplicates,
