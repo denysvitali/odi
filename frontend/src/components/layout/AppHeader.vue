@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Menu, X, FileText, Home, Upload, Star, Sun, Moon, Command, Keyboard, Shield } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { useFavorites } from '@/composables/useFavorites'
 import { useTheme } from '@/composables/useTheme'
 
 const emit = defineEmits<{
@@ -11,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const { count } = useFavorites()
 const { toggleTheme, isDark } = useTheme()
 const mobileMenuOpen = ref(false)
 
@@ -63,6 +65,12 @@ const isActive = (path: string) => router.currentRoute.value.path === path
           <span class="flex items-center gap-2">
             <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
             {{ item.name }}
+            <span
+              v-if="item.name === 'Favorites' && count > 0"
+              class="min-w-4 rounded-full bg-muted px-1.5 py-0.5 text-center text-[10px] leading-none text-muted-foreground"
+            >
+              {{ count }}
+            </span>
           </span>
         </RouterLink>
       </nav>
@@ -115,6 +123,12 @@ const isActive = (path: string) => router.currentRoute.value.path === path
         >
           <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
           {{ item.name }}
+          <span
+            v-if="item.name === 'Favorites' && count > 0"
+            class="ml-auto min-w-4 rounded-full bg-muted px-1.5 py-0.5 text-center text-[10px] leading-none text-muted-foreground"
+          >
+            {{ count }}
+          </span>
         </RouterLink>
       </nav>
     </div>
