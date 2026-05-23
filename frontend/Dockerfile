@@ -10,7 +10,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY pnpm-lock.yaml ./
 
-# Install dependencies
+# pnpm 10+ ignores lifecycle scripts by default; vue-demi needs its postinstall
+RUN pnpm config set ignore-build-scripts false
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
