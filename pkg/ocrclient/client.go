@@ -124,7 +124,7 @@ func (c *Client) Process(ctx context.Context, f io.Reader) (*OcrResult, error) {
 			return nil, ctx.Err()
 		}
 
-		result, retryable, err := c.doOnce(ctx, ocrUrl.String(), idemKey, data)
+		result, retryable, err := c.doOnce(ctx, ocrURL.String(), idemKey, data)
 		if err == nil {
 			return result, nil
 		}
