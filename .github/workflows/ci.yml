@@ -8,10 +8,9 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.24"
+  GO_VERSION: "1.26"
   NODE_VERSION: "22"
-  # Pin to a specific golangci-lint v1 release (v2 requires action v7).
-  GOLANGCI_LINT_VERSION: "v1.64.8"
+  GOLANGCI_LINT_VERSION: "latest"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -38,7 +37,7 @@ jobs:
         run: go test -race ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m

@@ -102,7 +102,10 @@ func (i *Indexer) ensureOpensearchClient() error {
 	i.opensearchClient, err = opensearchapi.NewClient(opensearchapi.Config{
 		Client: opensearch.Config{
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: i.opensearchInsecureSkipVerify},
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: i.opensearchInsecureSkipVerify, //nolint:gosec // Controlled by operator flag.
+					MinVersion:         tls.VersionTLS12,
+				},
 			},
 			Addresses: []string{i.opensearchAddr},
 			Username:  i.opensearchUsername,

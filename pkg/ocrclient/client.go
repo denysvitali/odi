@@ -107,7 +107,7 @@ func (c *Client) Process(ctx context.Context, f io.Reader) (*OcrResult, error) {
 	}
 	defer c.release()
 
-	ocrUrl, err := c.endpoint.Parse("/api/v1/ocr")
+	ocrURL, err := c.endpoint.Parse("/api/v1/ocr")
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse URL: %w", err)
 	}
@@ -147,8 +147,8 @@ func (c *Client) Process(ctx context.Context, f io.Reader) (*OcrResult, error) {
 	return nil, lastErr
 }
 
-func (c *Client) doOnce(ctx context.Context, ocrUrl string, idempotencyKey string, data []byte) (*OcrResult, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ocrUrl, bytes.NewReader(data))
+func (c *Client) doOnce(ctx context.Context, ocrURL string, idempotencyKey string, data []byte) (*OcrResult, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ocrURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, false, fmt.Errorf("unable to create request: %w", err)
 	}
@@ -200,6 +200,7 @@ func jitter(d time.Duration) time.Duration {
 		return 0
 	}
 	// full jitter: [d/2, d + d/2)
+	//nolint:gosec // math/rand is sufficient for jitter; not security-sensitive.
 	half := d / 2
 	return half + time.Duration(rand.Int63n(int64(d)))
 }

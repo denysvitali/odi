@@ -126,7 +126,10 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 	var transport http.RoundTripper
 	if s.osInsecureSkipVerify {
 		log.Warn("OpenSearch TLS verification disabled — do not use in production")
-		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+		transport = &http.Transport{TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, //nolint:gosec // Intentionally disabled via operator flag for dev/testing only.
+			MinVersion:         tls.VersionTLS12,
+		}}
 	} else {
 		transport = http.DefaultTransport
 	}

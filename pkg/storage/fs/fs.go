@@ -100,8 +100,8 @@ func (fs *Fs) Store(ctx context.Context, page models.ScannedPage) error {
 	// Sync the directory to ensure the rename is durable.
 	dirFile, err := os.Open(dir)
 	if err == nil {
-		dirFile.Sync()
-		dirFile.Close()
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
 	}
 
 	if _, err := page.Reader.Seek(0, io.SeekStart); err != nil {

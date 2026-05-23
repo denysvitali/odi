@@ -53,7 +53,8 @@ func New(caPath string) (*Client, error) {
 
 	t := http.Transport{
 		TLSClientConfig: &tls.Config{
-			RootCAs: certPool,
+			RootCAs:    certPool,
+			MinVersion: tls.VersionTLS12,
 		},
 		ForceAttemptHTTP2: true,
 	}

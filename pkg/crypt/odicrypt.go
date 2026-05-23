@@ -24,7 +24,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // SHA-1 is used ONLY for legacy backward-compatible decryption.
 	"crypto/sha256"
 	"fmt"
 	"io"

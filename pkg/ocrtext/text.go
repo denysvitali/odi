@@ -64,7 +64,7 @@ func GetText(v *ocrclient.OcrResult, mergeDistance float64, horizontalDistance f
 
 	// Print the text
 	for _, c := range columnsValue {
-		var prevBlock *ocrclient.TextBlock = nil
+		var prevBlock *ocrclient.TextBlock
 		for _, b := range c {
 			currentBlock := b
 			if prevBlock != nil {
