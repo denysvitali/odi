@@ -351,9 +351,10 @@ func (s *Server) handleSearch(c *gin.Context) {
 	searchContent := map[string]any{
 		"size": size,
 		"query": map[string]any{
-			"multi_match": map[string]any{
-				"query":  searchRequest.SearchTerm,
-				"fields": []string{"text"},
+			"query_string": map[string]any{
+				"query":            searchRequest.SearchTerm,
+				"fields":           []string{"text"},
+				"default_operator": "AND",
 			},
 		},
 		"highlight": map[string]any{

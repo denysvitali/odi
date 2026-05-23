@@ -42,13 +42,13 @@ type reindexStatus struct {
 func (s *Server) handleStartReindex(c *gin.Context) {
 	status, err := s.StartReindex()
 	if err != nil {
+		log.Errorf("unable to start reindex: %v", err)
 		switch {
 		case errors.Is(err, errReindexAlreadyRunning):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "status": status})
 		case errors.Is(err, errReindexIndexerUnavailable), errors.Is(err, errReindexStorageUnsupported):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "status": status})
 		default:
-			log.Errorf("unable to start reindex: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "status": status})
 		}
 		return
