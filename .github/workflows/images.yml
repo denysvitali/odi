@@ -87,7 +87,7 @@ jobs:
           echo "ref=${primary}" >> "$GITHUB_OUTPUT"
 
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image_ref.outputs.ref }}
           format: table
