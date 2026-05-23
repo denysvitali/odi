@@ -35,7 +35,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        # Ignore interactive build-script approval in CI (pnpm requires manual approval in non-interactive mode).
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         working-directory: frontend
