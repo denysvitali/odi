@@ -7,6 +7,8 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -131,6 +133,48 @@ func (fs *Fs) Delete(ctx context.Context, scanID string, sequenceNumber int) err
 var _ model.Storer = (*Fs)(nil)
 var _ model.Retriever = (*Fs)(nil)
 var _ model.Deleter = (*Fs)(nil)
+var _ model.PageLister = (*Fs)(nil)
+
+func (fs *Fs) ListPages(ctx context.Context) ([]models.ScannedPage, error) {
+	scans, err := os.ReadDir(fs.dir)
+	if err != nil {
+		return nil, fmt.Errorf("read storage directory %s: %w", fs.dir, err)
+	}
+
+	var pages []models.ScannedPage
+	for _, scan := range scans {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !scan.IsDir() {
+			continue
+		}
+		scanID := scan.Name()
+		if err := validateScanID(scanID); err != nil {
+			log.Warnf("skipping invalid scan directory %q: %v", scanID, err)
+			continue
+		}
+		files, err := os.ReadDir(path.Join(fs.dir, scanID))
+		if err != nil {
+			return nil, fmt.Errorf("read scan directory %s: %w", scanID, err)
+		}
+		for _, file := range files {
+			if file.IsDir() {
+				continue
+			}
+			name := file.Name()
+			if path.Ext(name) != ".jpg" || strings.HasSuffix(name, "_thumb.jpg") {
+				continue
+			}
+			seqID, err := strconv.Atoi(name[:len(name)-len(".jpg")])
+			if err != nil || seqID <= 0 {
+				continue
+			}
+			pages = append(pages, models.ScannedPage{ScanID: scanID, SequenceID: seqID})
+		}
+	}
+	return pages, nil
+}
 
 func New(dir string) (*Fs, error) {
 	_, err := os.Stat(dir)

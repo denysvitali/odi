@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
@@ -331,4 +332,47 @@ func TestHandleProcessMissingThumbnails_GeneratesMissingThumbnail(t *testing.T) 
 	assert.Equal(t, 1, result.Generated)
 	assert.Zero(t, result.Failed)
 	assert.True(t, thumbStorage.storeThumbCalled)
+}
+
+func TestHandleGetReindexStatus_DefaultIdle(t *testing.T) {
+	router := gin.New()
+	s := &Server{e: router}
+	router.GET("/api/v1/admin/reindex", s.handleGetReindexStatus)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reindex", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var result reindexStatus
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	assert.Equal(t, "idle", result.State)
+}
+
+func TestHandleStartReindex_IndexerUnavailable(t *testing.T) {
+	router := gin.New()
+	s := &Server{e: router, storage: newMockRWStorage()}
+	router.POST("/api/v1/admin/reindex", s.handleStartReindex)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/reindex", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestHandleStartReindex_StorageUnsupported(t *testing.T) {
+	router := gin.New()
+	s := &Server{
+		e:       router,
+		storage: newMockRWStorage(),
+		indexer: &indexer.Indexer{},
+	}
+	router.POST("/api/v1/admin/reindex", s.handleStartReindex)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/reindex", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

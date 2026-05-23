@@ -48,6 +48,10 @@ type Server struct {
 	storage              model.RWStorage
 	indexer              *indexer.Indexer
 	thumbnailProcessMu   sync.Mutex
+	reindexProcessMu     sync.Mutex
+	reindexStatusMu      sync.Mutex
+	reindexStatus        reindexStatus
+	workerCtx            context.Context
 
 	// apiToken, if non-empty, is required as a Bearer token on /api/v1/*.
 	apiToken string
@@ -180,6 +184,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	// stop together with the HTTP server.
 	bgCtx, cancelBg := context.WithCancel(ctx)
 	defer cancelBg()
+	s.workerCtx = bgCtx
 	s.startThumbnailProcessor(bgCtx)
 
 	srv := &http.Server{
@@ -266,7 +271,7 @@ func (s *Server) initRoutes() {
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
 		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: false,
 	}))
 
@@ -286,6 +291,8 @@ func (s *Server) initRoutes() {
 	g.GET("/files/:scanID/:sequenceId", s.handleGetFile)
 	g.GET("/thumbnails/:id", s.handleGetThumbnail)
 	g.POST("/thumbnails/process", s.handleProcessMissingThumbnails)
+	g.POST("/admin/reindex", s.handleStartReindex)
+	g.GET("/admin/reindex", s.handleGetReindexStatus)
 	g.POST("/upload", s.handleUpload)
 }
 

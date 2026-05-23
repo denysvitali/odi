@@ -3,6 +3,24 @@ import { STORAGE_KEYS } from '@/lib/constants'
 import { logger } from '@/lib/logger'
 import type { Document, DocumentDetails, SearchResult } from '@/types/documents'
 
+export interface ReindexPageError {
+  page: string
+  error: string
+}
+
+export interface ReindexStatus {
+  state: 'idle' | 'running' | 'completed' | 'failed'
+  startedAt?: string
+  finishedAt?: string
+  total: number
+  processed: number
+  duplicates: number
+  failed: number
+  currentPage?: string
+  recentErrors?: ReindexPageError[]
+  error?: string
+}
+
 export class ApiError extends Error {
   status: number
   retryable: boolean
@@ -132,5 +150,13 @@ export const api = {
 
   fileUrl(id: string): string {
     return `${getApiUrl()}/files/${encodeURIComponent(id).replace(/_/g, '/')}`
+  },
+
+  getReindexStatus(): Promise<ReindexStatus> {
+    return request('/admin/reindex')
+  },
+
+  startReindex(): Promise<ReindexStatus> {
+    return request('/admin/reindex', { method: 'POST' })
   }
 }

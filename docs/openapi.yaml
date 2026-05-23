@@ -243,6 +243,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /api/v1/admin/reindex:
+    get:
+      summary: Get B2 reindex status
+      description: Returns the current or most recent in-memory B2 reindex job status.
+      responses:
+        "200":
+          description: Reindex status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReindexStatus"
+    post:
+      summary: Start B2 reindex
+      description: Starts a background job that reprocesses stored pages and rebuilds OpenSearch entries.
+      responses:
+        "202":
+          description: Reindex started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReindexStatus"
+        "409":
+          description: Reindex already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Reindex unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /api/v1/upload:
     post:
       summary: Upload documents
@@ -449,3 +483,40 @@ components:
         error:
           type: string
           description: Human-readable error message (opaque)
+
+    ReindexStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [idle, running, completed, failed]
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        total:
+          type: integer
+        processed:
+          type: integer
+        duplicates:
+          type: integer
+        failed:
+          type: integer
+        currentPage:
+          type: string
+        recentErrors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReindexPageError"
+        error:
+          type: string
+
+    ReindexPageError:
+      type: object
+      properties:
+        page:
+          type: string
+        error:
+          type: string

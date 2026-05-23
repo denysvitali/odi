@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Home, FileText, Upload, Star, Keyboard, Command } from 'lucide-vue-next'
+import { Home, FileText, Upload, Star, Keyboard, Command, Shield } from 'lucide-vue-next'
 import { useFavorites } from '@/composables/useFavorites'
 
 const router = useRouter()
@@ -15,7 +15,8 @@ const navItems = [
   { name: 'Home', path: '/', icon: Home },
   { name: 'Documents', path: '/documents', icon: FileText },
   { name: 'Favorites', path: '/favorites', icon: Star },
-  { name: 'Upload', path: '/upload', icon: Upload }
+  { name: 'Upload', path: '/upload', icon: Upload },
+  { name: 'Admin', path: '/admin', icon: Shield }
 ]
 
 const isActive = (path: string) => router.currentRoute.value.path === path

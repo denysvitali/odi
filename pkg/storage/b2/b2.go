@@ -28,6 +28,7 @@ var log = logrus.StandardLogger().WithField("package", "storage/b2")
 var _ model.Storer = (*B2)(nil)
 var _ model.Retriever = (*B2)(nil)
 var _ model.Deleter = (*B2)(nil)
+var _ model.PageLister = (*B2)(nil)
 
 const (
 	defaultChunkSize = 5 * 1024 * 1024 // 5 MiB
@@ -314,6 +315,51 @@ func objToScannedPage(obj fs.DirEntry) models.ScannedPage {
 	}
 	s.SequenceID = int(seqId)
 	return s
+}
+
+func scannedPageFromRemote(remote string) (models.ScannedPage, bool) {
+	if !strings.HasSuffix(remote, ".jpg") || strings.HasSuffix(remote, "_thumb.jpg") {
+		return models.ScannedPage{}, false
+	}
+	scanID := path.Dir(remote)
+	if scanID == "." || scanID == "/" || scanID == "" {
+		return models.ScannedPage{}, false
+	}
+	name := strings.TrimSuffix(path.Base(remote), ".jpg")
+	seqID, err := strconv.Atoi(name)
+	if err != nil || seqID <= 0 {
+		return models.ScannedPage{}, false
+	}
+	return models.ScannedPage{ScanID: scanID, SequenceID: seqID}, true
+}
+
+func (b *B2) ListPages(ctx context.Context) ([]models.ScannedPage, error) {
+	roots, err := b.b2FS.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list root in bucket %s: %w", b.bucketName, err)
+	}
+
+	var pages []models.ScannedPage
+	for _, entry := range roots {
+		if page, ok := scannedPageFromRemote(entry.Remote()); ok {
+			pages = append(pages, page)
+			continue
+		}
+		if strings.Contains(path.Base(entry.Remote()), ".") {
+			continue
+		}
+
+		entries, err := b.b2FS.List(ctx, entry.Remote())
+		if err != nil {
+			return nil, fmt.Errorf("list scan %s in bucket %s: %w", entry.Remote(), b.bucketName, err)
+		}
+		for _, obj := range entries {
+			if page, ok := scannedPageFromRemote(obj.Remote()); ok {
+				pages = append(pages, page)
+			}
+		}
+	}
+	return pages, nil
 }
 
 type Config struct {

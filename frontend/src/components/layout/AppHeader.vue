@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Menu, X, FileText, Home, Upload, Star, Sun, Moon, Command, Keyboard } from 'lucide-vue-next'
+import { Menu, X, FileText, Home, Upload, Star, Sun, Moon, Command, Keyboard, Shield } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/composables/useTheme'
 
@@ -18,7 +18,8 @@ const navItems = [
   { name: 'Home', path: '/', icon: Home },
   { name: 'Documents', path: '/documents', icon: FileText },
   { name: 'Favorites', path: '/favorites', icon: Star },
-  { name: 'Upload', path: '/upload', icon: Upload }
+  { name: 'Upload', path: '/upload', icon: Upload },
+  { name: 'Admin', path: '/admin', icon: Shield }
 ]
 
 const isActive = (path: string) => router.currentRoute.value.path === path

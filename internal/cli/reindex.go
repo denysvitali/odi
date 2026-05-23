@@ -1,17 +1,15 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/denysvitali/odi/internal/ui"
-	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
+	"github.com/denysvitali/odi/pkg/reindex"
 	"github.com/denysvitali/odi/pkg/storage/b2"
 )
 
@@ -97,40 +95,17 @@ func runReindex(cmd *cobra.Command, args []string) error {
 	ui.PrintInfof("Found %d files to re-index", len(scanFiles))
 
 	ctx := context.Background()
-	for _, f := range scanFiles {
-		log.Infof("Indexing %s", f.ID())
-		scannedPage, err := b.Retrieve(ctx, f.ScanID, f.SequenceID)
-		if err != nil {
-			log.Errorf("Failed to retrieve file %s: %v", f.ID(), err)
-			continue
+	result := reindex.Run(ctx, b, idx, scanFiles, func(pageResult reindex.PageResult, _ reindex.Result) {
+		switch pageResult.Status {
+		case "indexed":
+			log.Infof("Indexed %s", pageResult.Page.ID())
+		case "duplicate":
+			log.Infof("Skipping duplicate file %s; duplicate of %s", pageResult.Page.ID(), pageResult.DuplicateOf)
+		default:
+			log.Errorf("Failed to index file %s: %v", pageResult.Page.ID(), pageResult.Error)
 		}
-		pageData, err := io.ReadAll(scannedPage.Reader)
-		if err != nil {
-			log.Errorf("Failed to read file %s: %v", f.ID(), err)
-			continue
-		}
-		scannedPage.Reader = bytes.NewReader(pageData)
-		scannedPage.ContentDigest = contentdigest.Sum(pageData)
+	})
 
-		reservation, err := idx.ReserveContentDigest(ctx, scannedPage.ContentDigest, scannedPage.ID())
-		if err != nil {
-			log.Errorf("Failed to reserve content digest for %s: %v", f.ID(), err)
-			continue
-		}
-		if !reservation.Reserved && reservation.ExistingDocumentID != scannedPage.ID() {
-			log.Infof("Skipping duplicate file %s; duplicate of %s", f.ID(), reservation.ExistingDocumentID)
-			continue
-		}
-		err = idx.Index(ctx, *scannedPage)
-		if err != nil {
-			if releaseErr := idx.ReleaseContentDigest(ctx, scannedPage.ContentDigest, scannedPage.ID()); releaseErr != nil {
-				log.Warnf("Failed to release content digest for %s after index failure: %v", f.ID(), releaseErr)
-			}
-			log.Errorf("Failed to index file %s: %v", f.ID(), err)
-			continue
-		}
-	}
-
-	ui.PrintSuccess("Re-indexing complete")
+	ui.PrintSuccessf("Re-indexing complete: processed=%d duplicates=%d failed=%d", result.Processed, result.Duplicates, result.Failed)
 	return nil
 }

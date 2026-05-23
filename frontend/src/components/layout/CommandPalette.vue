@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, FileText, Home, Upload, Sun, Moon, Keyboard, Trash2 } from 'lucide-vue-next'
+import { Search, FileText, Home, Upload, Sun, Moon, Keyboard, Trash2, Shield } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 import { useDocumentStore } from '@/stores/documents'
 
@@ -56,6 +56,13 @@ const actions = computed<Action[]>(() => [
     icon: Upload,
     keywords: 'upload scan add',
     perform: () => router.push('/upload')
+  },
+  {
+    id: 'go-admin',
+    label: 'Open admin',
+    icon: Shield,
+    keywords: 'admin reindex b2 import',
+    perform: () => router.push('/admin')
   },
   {
     id: 'toggle-theme',

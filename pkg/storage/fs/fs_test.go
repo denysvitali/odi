@@ -165,3 +165,25 @@ func TestStore_OverwritesExisting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, second, data, "file should be truncated and replaced")
 }
+
+func TestListPages(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Store(context.Background(), models.ScannedPage{
+		ScanID: "scan-a", SequenceID: 1, Reader: bytes.NewReader([]byte("one")),
+	}))
+	require.NoError(t, store.Store(context.Background(), models.ScannedPage{
+		ScanID: "scan-a", SequenceID: 2, Reader: bytes.NewReader([]byte("two")),
+	}))
+	require.NoError(t, os.WriteFile(path.Join(dir, "scan-a", "2_thumb.jpg"), []byte("thumb"), 0600))
+	require.NoError(t, os.WriteFile(path.Join(dir, "scan-a", "front.jpg"), []byte("bad"), 0600))
+
+	pages, err := store.ListPages(context.Background())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []models.ScannedPage{
+		{ScanID: "scan-a", SequenceID: 1},
+		{ScanID: "scan-a", SequenceID: 2},
+	}, pages)
+}

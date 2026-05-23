@@ -23,6 +23,10 @@ type Deleter interface {
 	Delete(ctx context.Context, scanID string, sequenceNumber int) error
 }
 
+type PageLister interface {
+	ListPages(ctx context.Context) ([]models.ScannedPage, error)
+}
+
 type RWStorage interface {
 	Storer
 	Retriever
