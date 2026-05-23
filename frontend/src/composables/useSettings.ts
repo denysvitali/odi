@@ -14,10 +14,7 @@ export function useSettings() {
     const url = new URL(file, window.location.origin + basePath)
 
     try {
-      let response: Response
-
-      // Mock on GitHub pages
-      response = await fetch(url.toString())
+      const response: Response = await fetch(url.toString())
 
       if (!response.ok) {
         throw new Error(`Failed to load settings: ${response.statusText}`)
