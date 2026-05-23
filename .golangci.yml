@@ -1,18 +1,16 @@
-# golangci-lint v2 configuration.
+# golangci-lint v1 configuration.
 # Docs: https://golangci-lint.run/usage/configuration/
-version: "2"
-
 run:
   timeout: 5m
-  # vendor/ is auto-skipped by golangci-lint; listed for clarity.
   modules-download-mode: readonly
 
 linters:
-  # Start with default linters (errcheck, govet, staticcheck, ineffassign,
-  # unused — gosimple is folded into staticcheck in v2) and layer security
-  # / correctness checks on top.
-  default: standard
   enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
     - bodyclose    # unclosed HTTP response bodies (high-impact for this repo)
     - errorlint    # errors.Is/As + %w wrapping correctness
     - gocritic     # opinionated correctness/perf/style checks
@@ -21,33 +19,27 @@ linters:
     - noctx        # http requests built without context
     - revive       # broad style/best-practices linter (replaces golint)
 
-  exclusions:
-    paths:
-      - vendor
-      # zefix-tools is mostly legacy/imported code with its own conventions.
-      # TODO: tighten this once the package is refactored; for now we keep the
-      # default linters running but drop gosec there to avoid drowning the
-      # signal with low-priority warnings.
-      - zefix-tools/cmd
-    rules:
-      # Tests routinely ignore errors on cleanup and use unchecked type
-      # assertions for table-driven cases. Keep them readable.
-      - path: _test\.go
-        linters:
-          - errcheck
-          - gosec
-          - bodyclose
-          - noctx
-      # Targeted carve-out for the legacy zefix-tools tree.
-      - path: zefix-tools/
-        linters:
-          - gosec
+linters-settings:
+  gosec:
+    excludes:
+      - G104
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    # Tests routinely ignore errors on cleanup and use unchecked type
+    # assertions for table-driven cases. Keep them readable.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - bodyclose
+        - noctx
+    # Targeted carve-out for the legacy zefix-tools tree.
+    - path: zefix-tools/
+      linters:
+        - gosec
 
-formatters:
-  enable:
-    - gofmt
-    - goimports
+  exclude-dirs:
+    - vendor
