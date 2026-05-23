@@ -59,24 +59,6 @@ const (
 	userErrUnsupportedMedia = "unsupported media type"
 )
 
-// detectMime reads up to sniffBufferSize bytes from r, detects the MIME type
-// with net/http.DetectContentType, and returns the detected type along with a
-// new reader that yields the original byte stream (sniff bytes prepended via
-// io.MultiReader, so the upload body is not consumed). Exposed for tests.
-func detectMime(r io.Reader) (string, io.Reader, error) {
-	buf := make([]byte, sniffBufferSize)
-	n, err := io.ReadFull(r, buf)
-	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return "", nil, err
-	}
-	buf = buf[:n]
-	mime := http.DetectContentType(buf)
-	if idx := bytes.IndexByte([]byte(mime), ';'); idx >= 0 {
-		mime = mime[:idx]
-	}
-	return mime, io.MultiReader(bytes.NewReader(buf), r), nil
-}
-
 // isAllowedMime returns true when the detected MIME type is in the allow-list.
 func isAllowedMime(mime string) bool {
 	_, ok := allowedUploadMimeTypes[mime]
@@ -140,7 +122,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 		}
 		buf := make([]byte, sniffBufferSize)
 		n, err := io.ReadFull(f, buf)
-		f.Close()
+		_ = f.Close()
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to read uploaded file"})
 			log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q for mime sniff: %v", scanID, sequenceOffset+i+1, fh.Filename, err)
@@ -188,10 +170,10 @@ func (s *Server) handleUpload(c *gin.Context) {
 				mu.Unlock()
 				return
 			}
+			defer func() { _ = f.Close() }()
 
 			var buf bytes.Buffer
 			if _, err := io.Copy(&buf, f); err != nil {
-				f.Close()
 				result.Status = "failed"
 				result.Error = userErrUploadFailed
 				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
@@ -200,7 +182,6 @@ func (s *Server) handleUpload(c *gin.Context) {
 				mu.Unlock()
 				return
 			}
-			f.Close()
 
 			digest := contentdigest.Sum(buf.Bytes())
 			reader := bytes.NewReader(buf.Bytes())

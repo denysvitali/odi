@@ -2,10 +2,11 @@ package cli
 
 import (
 	"fmt"
-	"github.com/keybase/dbus"
-	"github.com/keybase/go-keychain/secretservice"
 	"reflect"
 	"strings"
+
+	"github.com/keybase/dbus"
+	"github.com/keybase/go-keychain/secretservice"
 )
 
 const (

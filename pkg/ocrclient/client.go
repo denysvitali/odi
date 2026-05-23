@@ -162,7 +162,7 @@ func (c *Client) doOnce(ctx context.Context, ocrURL string, idempotencyKey strin
 	if err != nil {
 		return nil, isRetryableErr(err), fmt.Errorf("unable to perform HTTP request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		retry := res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500
@@ -200,8 +200,8 @@ func jitter(d time.Duration) time.Duration {
 		return 0
 	}
 	// full jitter: [d/2, d + d/2)
-	//nolint:gosec // math/rand is sufficient for jitter; not security-sensitive.
 	half := d / 2
+	//nolint:gosec // math/rand is sufficient for jitter; not security-sensitive.
 	return half + time.Duration(rand.Int63n(int64(d)))
 }
 
@@ -230,11 +230,15 @@ func (c *Client) Healthz() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	res, err := c.http.Get(healthEndpoint.String())
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, healthEndpoint.String(), nil)
 	if err != nil {
 		return false, err
 	}
-	defer res.Body.Close()
+	res, err := c.http.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode == http.StatusOK {
 		return true, nil
@@ -279,6 +283,7 @@ func validateOCRTarget(u *url.URL) error {
 	}
 
 	// Hostname → IP resolution. Reject if ANY resolved address is private.
+	//nolint:noctx // Startup-time DNS validation; no request-scoped context available.
 	ips, err := net.LookupIP(host)
 	if err != nil {
 		// Treat resolution failures as fatal so we don't accidentally bypass

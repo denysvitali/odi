@@ -1,3 +1,4 @@
+// Package server implements the Gin HTTP API for the ODI document indexer.
 package server
 
 import (

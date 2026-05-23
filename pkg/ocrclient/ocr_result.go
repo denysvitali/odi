@@ -67,4 +67,3 @@ func (s SortText) Swap(i, j int) {
 }
 
 var _ sort.Interface = SortText{}
-

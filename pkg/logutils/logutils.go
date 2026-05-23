@@ -57,7 +57,7 @@ func (f *ColoredFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	// Level with color
 	levelText := strings.ToUpper(entry.Level.String())
 	if len(levelText) < 5 {
-		levelText = levelText + strings.Repeat(" ", 5-len(levelText))
+		levelText += strings.Repeat(" ", 5-len(levelText))
 	}
 
 	if !f.DisableColors && isTerminal() {
@@ -83,7 +83,7 @@ func (f *ColoredFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	// Package field if present
 	if pkg, ok := entry.Data["package"]; ok {
 		b.WriteString("[")
-		b.WriteString(fmt.Sprintf("%v", pkg))
+		_, _ = fmt.Fprintf(&b, "%v", pkg)
 		b.WriteString("] ")
 	}
 
@@ -95,7 +95,7 @@ func (f *ColoredFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		if k == "package" {
 			continue
 		}
-		b.WriteString(fmt.Sprintf(" %s=%v", k, v))
+		_, _ = fmt.Fprintf(&b, " %s=%v", k, v)
 	}
 
 	b.WriteByte('\n')

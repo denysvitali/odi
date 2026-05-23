@@ -23,11 +23,12 @@ func (c Client) RoundTrip(request *http.Request) (*http.Response, error) {
 // New creates a http.Client that only trusts the CA
 // specified in the caPath.
 func New(caPath string) (*Client, error) {
+	//nolint:gosec // caPath is a user-supplied configuration value, not an arbitrary file inclusion.
 	caFile, err := os.Open(caPath)
 	if err != nil {
 		return nil, err
 	}
-	defer caFile.Close()
+	defer func() { _ = caFile.Close() }()
 
 	caBytes, err := io.ReadAll(caFile)
 	if err != nil {
@@ -45,7 +46,7 @@ func New(caPath string) (*Client, error) {
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse certificate: %v", err)
+		return nil, fmt.Errorf("unable to parse certificate: %w", err)
 	}
 
 	certPool := x509.NewCertPool()

@@ -1,3 +1,4 @@
+// Package server implements the Gin HTTP API for the ODI document indexer.
 package server
 
 import (
@@ -8,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -71,8 +73,8 @@ func init() {
 	metricsRegistry.MustRegister(httpRequestsTotal, httpRequestDuration)
 	// Surface Go runtime + process collectors on /metrics as well.
 	metricsRegistry.MustRegister(
-		prometheus.NewGoCollector(),
-		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 }
 

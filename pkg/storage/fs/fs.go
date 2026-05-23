@@ -44,6 +44,7 @@ func (fs *Fs) Retrieve(ctx context.Context, scanID string, sequenceNumber int) (
 		return nil, err
 	}
 	p := path.Join(fs.dir, scanID, fmt.Sprintf("%d.jpg", sequenceNumber))
+	//nolint:gosec // path is validated by validateScanID before use.
 	f, err := os.Open(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -70,6 +71,7 @@ func (fs *Fs) Store(ctx context.Context, page models.ScannedPage) error {
 	finalPath := path.Join(dir, fmt.Sprintf("%d.jpg", page.SequenceID))
 	tmpPath := finalPath + ".tmp." + uuid.New().String()
 
+	//nolint:gosec // path is validated by validateScanID before use.
 	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return fmt.Errorf("create temp file %s for scan %s page %d: %w", tmpPath, page.ScanID, page.SequenceID, err)
@@ -80,24 +82,25 @@ func (fs *Fs) Store(ctx context.Context, page models.ScannedPage) error {
 	closeErr := f.Close()
 
 	if copyErr != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, tmpPath, copyErr)
 	}
 	if syncErr != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("sync page %d of scan %s to %s: %w", page.SequenceID, page.ScanID, tmpPath, syncErr)
 	}
 	if closeErr != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close temp file for page %d of scan %s: %w", page.SequenceID, page.ScanID, closeErr)
 	}
 
 	if err := os.Rename(tmpPath, finalPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename %s -> %s for page %d of scan %s: %w", tmpPath, finalPath, page.SequenceID, page.ScanID, err)
 	}
 
 	// Sync the directory to ensure the rename is durable.
+	//nolint:gosec // path is validated by validateScanID before use.
 	dirFile, err := os.Open(dir)
 	if err == nil {
 		_ = dirFile.Sync()

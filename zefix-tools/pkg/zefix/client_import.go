@@ -2,9 +2,10 @@ package zefix
 
 import (
 	"encoding/json"
+	"os"
+
 	"github.com/denysvitali/sparql-client"
 	"gorm.io/gorm/clause"
-	"os"
 )
 
 // Import takes a .json file returned from a SPARQL query to the Zefix API and

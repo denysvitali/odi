@@ -5,7 +5,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -58,8 +57,6 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	log := logrus.StandardLogger()
-
 	if GetString(cmd, FlagOsAddr) == "" {
 		return fmt.Errorf("required flag or env var not set: %s (env: OPENSEARCH_ADDR)", FlagOsAddr)
 	}
@@ -140,9 +137,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer stop()
 
 	ui.PrintSuccessf("Starting server on %s", listenAddr)
-	err = s.Run(ctx, listenAddr)
-	if err != nil {
-		log.Fatalf("Server error: %v", err)
+	if err := s.Run(ctx, listenAddr); err != nil {
+		return fmt.Errorf("server error: %w", err)
 	}
 	return nil
 }
