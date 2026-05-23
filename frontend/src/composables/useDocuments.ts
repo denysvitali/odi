@@ -25,7 +25,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
 
   const filteredDocuments = computed(() => documents.value)
 
-  const filteredTotal = computed(() => filteredDocuments.value.length)
+  const filteredTotal = computed(() => total.value)
 
   const hasMore = computed(() => {
     if (total.value === 0) return false

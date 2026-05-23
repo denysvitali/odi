@@ -19,6 +19,9 @@ linters:
     - noctx        # http requests built without context
     - revive       # broad style/best-practices linter (replaces golint)
 
+  disable:
+    - typecheck    # redundant with go build ./...; prone to false positives in CI
+
 linters-settings:
   gosec:
     excludes:
