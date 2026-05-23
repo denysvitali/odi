@@ -1,6 +1,6 @@
 .PHONY: build build-go build-frontend \
         test test-go test-frontend \
-        lint docker-up docker-down
+        lint docker-up docker-down ci-fail
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,9 @@ test-frontend:
 lint:
 	golangci-lint run
 	cd frontend && pnpm lint
+
+ci-fail:
+	./gh-actions-mcp CI
 
 # ── Docker ─────────────────────────────────────────────────────────────────────
 

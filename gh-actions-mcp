@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKFLOW="${1:-CI}"
+BRANCH="${2:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+MAX_LINES="${3:-12}"
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "error: gh CLI is required. Install it and authenticate with gh auth login." >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "error: jq is required." >&2
+  exit 1
+fi
+
+run_json=$(gh run list \
+  --workflow "$WORKFLOW" \
+  --branch "$BRANCH" \
+  --status completed \
+  --conclusion failure \
+  --limit 1 \
+  --json databaseId,url,headSha,createdAt,conclusion 2>/dev/null | jq '.[0] // empty')
+
+if [ -z "$run_json" ] || [ "$run_json" = "null" ]; then
+  echo "No failed CI runs found for workflow=${WORKFLOW} branch=${BRANCH}"
+  exit 0
+fi
+
+RUN_ID=$(echo "$run_json" | jq -r '.databaseId')
+RUN_URL=$(echo "$run_json" | jq -r '.url')
+HEAD_SHA=$(echo "$run_json" | jq -r '.headSha')
+
+echo "Latest failed run: $RUN_URL"
+echo "Workflow: $WORKFLOW"
+echo "Branch:   $BRANCH"
+echo "SHA:      $HEAD_SHA"
+
+echo
+
+jobs_json="$(gh run view "$RUN_ID" --json jobs --jq '.jobs | map(select(.conclusion == "failure") | {id: .databaseId, name: .name, failed_steps: [.steps[] | select(.conclusion == "failure") | {name, number}] })')"
+
+if [ -z "$jobs_json" ] || [ "$jobs_json" = "[]" ] || [ "$jobs_json" = "null" ]; then
+  echo "No failed jobs found in this run JSON payload."
+  exit 0
+fi
+
+job_count=0
+while IFS= read -r job; do
+  [ -z "$job" ] && continue
+  job_count=$((job_count + 1))
+  JOB_ID=$(echo "$job" | jq -r '.id')
+  JOB_NAME=$(echo "$job" | jq -r '.name')
+
+  echo "Failure #${job_count}: ${JOB_NAME} (job ${JOB_ID})"
+  echo "  failed steps:"
+  echo "$job" | jq -r '.failed_steps[] | "    - " + .name + " (step " + (.number | tostring) + ")"'
+  echo "  top error lines:"
+
+  logs="$(gh run view "$RUN_ID" --log-failed --job "$JOB_ID" 2>/dev/null || true)"
+  if [ -z "$logs" ]; then
+    echo "    <no error lines available>"
+    echo
+    continue
+  fi
+
+  extracted="$(printf '%s\n' "$logs" | awk -v limit="$MAX_LINES" '
+    /##\[error\]|error|ERROR|ERR_|failed|FAILED/ {
+      print "    " $0
+      if (++n >= limit) { exit }
+    }
+  ')"
+
+  if [ -n "$extracted" ]; then
+    printf '%s\n' "$extracted"
+  else
+    echo "    <no matching error lines>"
+  fi
+  echo
+
+done < <(echo "$jobs_json" | jq -c '.[]')

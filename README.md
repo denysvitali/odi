@@ -136,6 +136,7 @@ The Go binary (`odi`, or `go run .`) is a single Cobra CLI:
 make build        Build the Go binary and the frontend bundle
 make test         go test ./... + pnpm test
 make lint         golangci-lint + pnpm lint
+make ci-fail      Show latest failed CI run and top error lines (frontend-first)
 make docker-up    Start OpenSearch + Dashboards + PostgreSQL
 make docker-down  Stop all containers
 ```
