@@ -3,6 +3,7 @@ package reindex
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -74,7 +75,7 @@ func Run(ctx context.Context, storage model.Retriever, idx Indexer, pages []mode
 
 		if err := idx.Index(ctx, *page); err != nil {
 			if releaseErr := idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
-				err = fmt.Errorf("%w; release content digest: %v", err, releaseErr)
+				err = errors.Join(err, fmt.Errorf("release content digest: %w", releaseErr))
 			}
 			result.Failed++
 			emit(progress, PageResult{Page: *page, Status: "failed", Error: fmt.Errorf("index page: %w", err)}, result)

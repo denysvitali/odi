@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff/v5"
 	rcloneb2 "github.com/rclone/rclone/backend/b2"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/config/configmap"
@@ -57,23 +57,19 @@ func isRetryable(err error) bool {
 }
 
 func withRetry(ctx context.Context, op func() error) error {
-	b := backoff.WithContext(
-		backoff.NewExponentialBackOff(
-			backoff.WithInitialInterval(retryInitialInterval),
-			backoff.WithMaxInterval(retryMaxInterval),
-			backoff.WithMaxElapsedTime(retryMaxElapsedTime),
-		),
-		ctx,
-	)
-	return backoff.RetryNotify(func() error {
+	b := backoff.NewExponentialBackOff()
+	b.InitialInterval = retryInitialInterval
+	b.MaxInterval = retryMaxInterval
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
 		err := op()
 		if err != nil && !isRetryable(err) {
-			return backoff.Permanent(err)
+			return struct{}{}, backoff.Permanent(err)
 		}
-		return err
-	}, b, func(err error, d time.Duration) {
+		return struct{}{}, err
+	}, backoff.WithBackOff(b), backoff.WithMaxElapsedTime(retryMaxElapsedTime), backoff.WithNotify(func(err error, d time.Duration) {
 		log.WithError(err).Warnf("retrying B2 operation in %s", d)
-	})
+	}))
+	return err
 }
 
 func (b *B2) Store(ctx context.Context, page models.ScannedPage) (err error) {
