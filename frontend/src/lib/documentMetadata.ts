@@ -61,7 +61,6 @@ function hasAnyCompanyKeyword(line: string): boolean {
 }
 
 function isAddressOrContactLine(line: string): boolean {
-  const lowered = line.toLowerCase()
   if (/[0-9]+/.test(line) && /(strasse|str\. |str\.|str |avenue|street|road|via|rue|platz|casella|zip|tel|telefon|phone|fax|www\.|http|\S+@\S+)/i.test(line)) {
     return true
   }

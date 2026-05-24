@@ -22,7 +22,7 @@ const (
 	//   - gemma4:e4b        (4B active params, ~6 GB at Q4_K_M) — better quality
 	//   - gemma4:26b-a4b    (MoE, 4B active, ~16-18 GB at Q4_K_M)
 	// Ollama model names are used here because the default client talks to Ollama.
-	DefaultLLMModel = "gemma4:e2b"
+	DefaultLLMModel  = "gemma4:e2b"
 	defaultTimeout   = 45 * time.Second
 	maxInputRunes    = 12000
 	defaultMaxTokens = 256
