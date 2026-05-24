@@ -39,7 +39,6 @@ type Indexer struct {
 	ocrClient        *ocrclient.Client
 	zefixProcessor   *zefix.Processor
 
-	initCalled         bool
 	mergeDistance      float64
 	horizontalDistance float64
 }
@@ -174,24 +173,11 @@ func (i *Indexer) init() error {
 		return fmt.Errorf("OCR API is not healthy")
 	}
 
-	i.initCalled = true
-	return nil
-}
-
-func (i *Indexer) ensureInitCalled() error {
-	if !i.initCalled {
-		return fmt.Errorf("init wasn't called")
-	}
 	return nil
 }
 
 func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 	log.Debugf("indexing %s", page.ID())
-	err := i.ensureInitCalled()
-	if err != nil {
-		return fmt.Errorf("ensure init called: %w", err)
-	}
-
 	log.Debugf("processing %s via OCR client", page.ID())
 	ocrResult, err := i.ocrClient.Process(ctx, page.Reader)
 	if err != nil {

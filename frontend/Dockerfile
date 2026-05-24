@@ -1,8 +1,8 @@
 # Build stage
 FROM node:lts-alpine AS builder
 
-# Install pnpm (pin v9 to avoid pnpm 10+ build-script approval issues in Docker)
-RUN npm i -g pnpm@9
+# Install pnpm (align with CI version)
+RUN npm i -g pnpm@10
 
 WORKDIR /app
 

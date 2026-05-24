@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,22 @@ import (
 )
 
 var log = logrus.StandardLogger().WithField("package", "storage/b2")
+
+// validScanIDRegex matches only alphanumeric characters, hyphens, and underscores
+var validScanIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// validateScanID validates that the scanID only contains safe characters
+// and does not contain path traversal sequences
+func validateScanID(scanID string) error {
+	if scanID == "" {
+		return fmt.Errorf("scanID cannot be empty")
+	}
+	if !validScanIDRegex.MatchString(scanID) {
+		return fmt.Errorf("scanID contains invalid characters: only alphanumeric characters, hyphens, and underscores are allowed")
+	}
+	return nil
+}
+
 var _ model.Storer = (*B2)(nil)
 var _ model.Retriever = (*B2)(nil)
 var _ model.Deleter = (*B2)(nil)
@@ -73,6 +90,9 @@ func withRetry(ctx context.Context, op func() error) error {
 }
 
 func (b *B2) Store(ctx context.Context, page models.ScannedPage) (err error) {
+	if err := validateScanID(page.ScanID); err != nil {
+		return err
+	}
 	key := fileName(page.ScanID, page.SequenceID)
 
 	if b.crypt != nil {
@@ -119,6 +139,9 @@ func (b *B2) toStorageFile(page models.ScannedPage, fileSize int64) fs.ObjectInf
 }
 
 func (b *B2) Retrieve(ctx context.Context, scanID string, sequenceId int) (*models.ScannedPage, error) {
+	if err := validateScanID(scanID); err != nil {
+		return nil, err
+	}
 	key := fileName(scanID, sequenceId)
 	var obj fs.Object
 	if err := withRetry(ctx, func() error {
@@ -164,6 +187,9 @@ func (b *B2) Retrieve(ctx context.Context, scanID string, sequenceId int) (*mode
 
 // ThumbnailExists checks if a thumbnail exists for the given scan and sequence
 func (b *B2) ThumbnailExists(ctx context.Context, scanID string, sequenceId int) (bool, error) {
+	if err := validateScanID(scanID); err != nil {
+		return false, err
+	}
 	key := thumbnailKey(scanID, sequenceId)
 	_, err := b.b2FS.NewObject(ctx, key)
 	if err != nil {
@@ -177,6 +203,9 @@ func (b *B2) ThumbnailExists(ctx context.Context, scanID string, sequenceId int)
 
 // StoreThumbnail stores a thumbnail image for the given scan and sequence
 func (b *B2) StoreThumbnail(ctx context.Context, scanID string, sequenceId int, reader io.Reader) error {
+	if err := validateScanID(scanID); err != nil {
+		return err
+	}
 	key := thumbnailKey(scanID, sequenceId)
 
 	// Read into buffer since we need file size and reader may not be seekable
@@ -225,6 +254,9 @@ func (b *B2) toThumbnailStorageFile(scanID string, sequenceId int, fileSize int6
 
 // RetrieveThumbnail retrieves a thumbnail image
 func (b *B2) RetrieveThumbnail(ctx context.Context, scanID string, sequenceId int) (*models.ThumbnailPage, error) {
+	if err := validateScanID(scanID); err != nil {
+		return nil, err
+	}
 	key := thumbnailKey(scanID, sequenceId)
 	obj, err := b.b2FS.NewObject(ctx, key)
 	if err != nil {
@@ -265,6 +297,9 @@ func (b *B2) RetrieveThumbnail(ctx context.Context, scanID string, sequenceId in
 
 // ListFiles returns a list of files for a given scan
 func (b *B2) ListFiles(scanID string) ([]models.ScannedPage, error) {
+	if err := validateScanID(scanID); err != nil {
+		return nil, err
+	}
 	ctx := context.Background()
 	objects, err := b.b2FS.List(ctx, scanID)
 	if err != nil {
@@ -279,6 +314,9 @@ func (b *B2) ListFiles(scanID string) ([]models.ScannedPage, error) {
 }
 
 func (b *B2) Delete(ctx context.Context, scanID string, sequenceId int) error {
+	if err := validateScanID(scanID); err != nil {
+		return err
+	}
 	key := fileName(scanID, sequenceId)
 	var obj fs.Object
 	if err := withRetry(ctx, func() error {

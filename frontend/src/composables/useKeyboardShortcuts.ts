@@ -27,15 +27,12 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
     for (const s of shortcuts) {
       if (typing && !s.allowInInput) continue
       if (s.when && !s.when()) continue
-      const metaMatch = (s.meta ? e.metaKey || e.ctrlKey : !e.metaKey && !e.ctrlKey) || s.meta === undefined && !e.metaKey && !e.ctrlKey
-      // Simpler: if s.meta defined, require meta/ctrl; otherwise ignore modifier
       const needMeta = !!s.meta
       const hasMeta = e.metaKey || e.ctrlKey
       if (needMeta !== hasMeta) continue
       if (!!s.shift !== e.shiftKey) continue
       if (!!s.alt !== e.altKey) continue
       if (e.key.toLowerCase() !== s.key.toLowerCase()) continue
-      void metaMatch
       e.preventDefault()
       s.handler(e)
       break

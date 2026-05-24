@@ -33,7 +33,7 @@ paths:
   /readyz:
     get:
       summary: Readiness probe
-      description: Returns 200 when all dependencies (OpenSearch, OCR, Zefix) are reachable.
+      description: Returns 200 when all dependencies (OpenSearch, OCR, optional LLM, and Zefix when configured) are reachable.
       security: []
       responses:
         "200":
@@ -383,6 +383,8 @@ components:
         sequenceID:
           type: integer
         text:
+          type: string
+        title:
           type: string
         contentDigest:
           type: string

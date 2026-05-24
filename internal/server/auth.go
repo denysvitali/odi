@@ -19,11 +19,13 @@ func authMiddleware(token string) gin.HandlerFunc {
 		header := c.GetHeader("Authorization")
 		const prefix = "Bearer "
 		if !strings.HasPrefix(header, prefix) {
+			c.Header("WWW-Authenticate", "Bearer")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 		provided := []byte(strings.TrimPrefix(header, prefix))
 		if subtle.ConstantTimeCompare(provided, expected) != 1 {
+			c.Header("WWW-Authenticate", "Bearer")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}

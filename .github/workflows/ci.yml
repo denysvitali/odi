@@ -58,9 +58,7 @@ jobs:
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
-      # TODO: remove continue-on-error once rclone transitive noise is resolved
       - name: Run govulncheck
-        continue-on-error: true
         run: govulncheck ./...
 
   # ── Frontend (Vue 3 + pnpm) ─────────────────────────────────────────────────

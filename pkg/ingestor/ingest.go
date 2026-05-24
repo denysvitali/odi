@@ -85,6 +85,10 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	wg := sync.WaitGroup{}
 	var failedPages atomic.Int64
 	var totalPages atomic.Int64
+	var closeOnce sync.Once
+	closeChan := func() {
+		closeOnce.Do(func() { close(pageChan) })
+	}
 
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
@@ -102,12 +106,12 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 		lr := io.LimitReader(scanner.CurrentPage(), limit+1)
 		b, err := io.ReadAll(lr)
 		if err != nil {
-			close(pageChan)
+			closeChan()
 			wg.Wait()
 			return fmt.Errorf("unable to read page %d of scan %s: %w", seq, scanID, err)
 		}
 		if int64(len(b)) > limit {
-			close(pageChan)
+			closeChan()
 			wg.Wait()
 			return fmt.Errorf("page %d of scan %s exceeds max page size of %d bytes", seq, scanID, limit)
 		}
@@ -121,12 +125,12 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 	}
 
 	if err := scanner.Err(); err != nil {
-		close(pageChan)
+		closeChan()
 		wg.Wait()
 		return fmt.Errorf("scanner error for scan %s: %w", scanID, err)
 	}
 
-	close(pageChan)
+	closeChan()
 	wg.Wait()
 
 	if err := i.backend.Flush(ctx); err != nil {

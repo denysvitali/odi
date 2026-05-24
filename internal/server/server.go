@@ -135,7 +135,7 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 			MinVersion:         tls.VersionTLS12,
 		}}
 	} else {
-		transport = http.DefaultTransport
+		transport = http.DefaultTransport.(*http.Transport).Clone()
 	}
 
 	c, err := opensearchapi.NewClient(
@@ -298,7 +298,7 @@ func (s *Server) initRoutes() {
 
 type SearchRequest struct {
 	SearchTerm string `json:"searchTerm"`
-	Size       int    `json:"size,omitempty"`
+	Size       int    `json:"size,omitempty" binding:"omitempty,max=1000"`
 	ScrollId   string `json:"scrollId,omitempty"`
 }
 
@@ -323,6 +323,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
+		defer scrollResp.Inspect().Response.Body.Close()
 		if scrollResp.Inspect().Response.StatusCode >= 400 {
 			log.Errorf("scroll returned error (scrollId=%q): %s", searchRequest.ScrollId, scrollResp.Inspect().Response.Status())
 			c.JSON(http.StatusInternalServerError, internalServerError)
@@ -334,7 +335,6 @@ func (s *Server) handleSearch(c *gin.Context) {
 		if err != nil {
 			logStreamError(c, err, fmt.Sprintf("unable to stream scroll response (scrollId=%q)", searchRequest.ScrollId))
 		}
-		scrollResp.Inspect().Response.Body.Close()
 		return
 	}
 
@@ -383,6 +383,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
+	defer searchResp.Inspect().Response.Body.Close()
 
 	if searchResp.Inspect().Response.StatusCode >= 400 {
 		log.Errorf("search returned error (term=%q): %s", searchRequest.SearchTerm, searchResp.Inspect().Response.Status())
@@ -396,7 +397,6 @@ func (s *Server) handleSearch(c *gin.Context) {
 	if err != nil {
 		logStreamError(c, err, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
 	}
-	searchResp.Inspect().Response.Body.Close()
 }
 
 func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr string) {
@@ -420,7 +420,15 @@ func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr str
 		return
 	}
 
-	c.Header("Content-Type", "image/jpeg")
+	// Detect content type from the first 512 bytes, then seek back.
+	buf := make([]byte, 512)
+	n, _ := page.Reader.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+	if rs, ok := page.Reader.(io.Seeker); ok {
+		_, _ = rs.Seek(0, io.SeekStart)
+	}
+
+	c.Header("Content-Type", contentType)
 	c.Status(http.StatusOK)
 	_, err = io.Copy(c.Writer, page.Reader)
 	if err != nil {
@@ -584,7 +592,12 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 		return
 	}
 
-	if docResp.Inspect().Response.StatusCode >= 400 {
+	statusCode := docResp.Inspect().Response.StatusCode
+	if statusCode == http.StatusNotFound {
+		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		return
+	}
+	if statusCode >= 400 {
 		log.Warnf("unable to get document %s: %s", docId, docResp.Inspect().Response.Status())
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
@@ -611,6 +624,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, internalServerError)
 			return
 		}
+		defer scrollResp.Inspect().Response.Body.Close()
 		if scrollResp.Inspect().Response.StatusCode >= 400 {
 			log.Warnf("unable to get documents (scroll): %s", scrollResp.Inspect().Response.Status())
 			c.JSON(http.StatusInternalServerError, internalServerError)
@@ -622,7 +636,6 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		if err != nil {
 			logStreamError(c, err, "unable to stream documents response (scroll)")
 		}
-		scrollResp.Inspect().Response.Body.Close()
 		return
 	}
 
@@ -698,6 +711,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
+	defer searchResp.Inspect().Response.Body.Close()
 
 	if searchResp.Inspect().Response.StatusCode >= 400 {
 		log.Warnf("unable to get documents: %s", searchResp.Inspect().Response.Status())
@@ -711,7 +725,6 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	if err != nil {
 		logStreamError(c, err, "unable to stream documents response")
 	}
-	searchResp.Inspect().Response.Body.Close()
 }
 
 func (s *Server) pingOs(ctx context.Context) error {

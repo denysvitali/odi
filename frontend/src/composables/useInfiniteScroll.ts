@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 
 export interface UseInfiniteScrollOptions {
   threshold?: number
@@ -14,9 +14,15 @@ export function useInfiniteScroll(
   const targetRef = ref<HTMLElement | null>(null)
   let observer: IntersectionObserver | null = null
 
-  onMounted(() => {
-    if (!targetRef.value) return
+  function disconnect() {
+    if (observer) {
+      observer.disconnect()
+      observer = null
+    }
+  }
 
+  function connect(el: HTMLElement) {
+    disconnect()
     observer = new IntersectionObserver(
       (entries) => {
         const [entry] = entries
@@ -29,15 +35,25 @@ export function useInfiniteScroll(
         rootMargin
       }
     )
+    observer.observe(el)
+  }
 
-    observer.observe(targetRef.value)
+  onMounted(() => {
+    if (targetRef.value) {
+      connect(targetRef.value)
+    }
+  })
+
+  watch(targetRef, (el) => {
+    if (el) {
+      connect(el)
+    } else {
+      disconnect()
+    }
   })
 
   onUnmounted(() => {
-    if (observer) {
-      observer.disconnect()
-      observer = null
-    }
+    disconnect()
   })
 
   return {

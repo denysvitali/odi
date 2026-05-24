@@ -30,6 +30,7 @@ func (w *Worker) do(ctx context.Context, page models.ScannedPage) {
 }
 
 func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	if w.idx == nil {
 		log.Errorf("unable to start worker: w.idx is nil")
 		return
@@ -38,7 +39,6 @@ func (w *Worker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		w.do(ctx, v)
 	}
 	log.Infof("done processing all")
-	wg.Done()
 }
 
 func (w *Worker) SetIndexer(idx *Indexer) {

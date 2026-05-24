@@ -31,7 +31,6 @@ func testIndexer(t *testing.T, handler http.HandlerFunc) *Indexer {
 	return &Indexer{
 		documentsIndex:   DefaultDocumentsIndex,
 		opensearchClient: client,
-		initCalled:       true,
 	}
 }
 

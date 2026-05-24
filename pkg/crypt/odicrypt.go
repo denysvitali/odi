@@ -144,6 +144,11 @@ func (o *OdiCrypt) Encrypt(input io.Reader) (io.ReadSeeker, error) {
 	return bytes.NewReader(finalBytes), nil
 }
 
+// maxDecryptSize is the upper bound on ciphertext size we'll accept.
+// Files larger than this are rejected to prevent OOM. 200 MiB is
+// comfortably above any sane scanned document.
+const maxDecryptSize = 200 << 20
+
 // Decrypt decrypts data using either the modern V1 format or the legacy format.
 // The format is auto-detected based on the version byte.
 //
@@ -151,10 +156,13 @@ func (o *OdiCrypt) Encrypt(input io.Reader) (io.ReadSeeker, error) {
 // is read into memory. This may cause high memory usage for large files.
 func (o *OdiCrypt) Decrypt(objReader io.ReadCloser) (io.ReadSeeker, error) {
 	// AES-GCM requires the entire ciphertext to be available at once.
-	// Read all data first to determine format.
-	allData, err := io.ReadAll(objReader)
+	// Read all data first to determine format, but cap the size to prevent OOM.
+	allData, err := io.ReadAll(io.LimitReader(objReader, maxDecryptSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read data: %w", err)
+	}
+	if len(allData) > maxDecryptSize {
+		return nil, fmt.Errorf("ciphertext exceeds maximum size of %d bytes", maxDecryptSize)
 	}
 
 	if len(allData) == 0 {

@@ -54,10 +54,6 @@ func (i *Indexer) ReserveContentDigest(ctx context.Context, digest string, docum
 	if digest == "" {
 		return ContentDigestReservation{Reserved: true}, nil
 	}
-	if err := i.ensureInitCalled(); err != nil {
-		return ContentDigestReservation{}, fmt.Errorf("ensure init called: %w", err)
-	}
-
 	body := bytes.NewBuffer(nil)
 	if err := json.NewEncoder(body).Encode(contentDigestReservationDocument{
 		DocumentID: documentID,
