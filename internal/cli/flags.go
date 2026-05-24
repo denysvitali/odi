@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/denysvitali/odi/pkg/llm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -45,6 +47,11 @@ const (
 	FlagWorkers         = "workers"
 	FlagDebug           = "debug"
 	DefaultIndexWorkers = 4
+
+	// LLM flags
+	FlagLLMAPIAddr = "llm-api-addr"
+	FlagLLMModel   = "llm-model"
+	FlagLLMTimeout = "llm-timeout"
 )
 
 // AddOpenSearchFlags adds OpenSearch connection flags to a command
@@ -95,6 +102,17 @@ func AddZefixFlags(cmd *cobra.Command) {
 	bindEnv(FlagZefixDsn, "ZEFIX_DSN")
 }
 
+// AddLLMFlags adds local LLM enrichment flags to a command.
+func AddLLMFlags(cmd *cobra.Command) {
+	cmd.Flags().String(FlagLLMAPIAddr, "", "Local LLM base URL (env: LLM_API_ADDR). If empty, enrichment is disabled.")
+	cmd.Flags().String(FlagLLMModel, llm.DefaultLLMModel, "LLM model name (default Gemma 4: gemma4) (env: LLM_MODEL)")
+	cmd.Flags().Duration(FlagLLMTimeout, 45*time.Second, "LLM request timeout (env: LLM_TIMEOUT)")
+
+	bindEnv(FlagLLMAPIAddr, "LLM_API_ADDR")
+	bindEnv(FlagLLMModel, "LLM_MODEL")
+	bindEnv(FlagLLMTimeout, "LLM_TIMEOUT")
+}
+
 // bindEnv binds a flag to environment variables
 func bindEnv(flagName string, envVars ...string) {
 	allVars := append([]string{flagName}, envVars...)
@@ -130,6 +148,22 @@ func GetBool(cmd *cobra.Command, flagName string) bool {
 	return viper.GetBool(flagName)
 }
 
+// GetDuration returns a duration value from viper, checking flag then env.
+func GetDuration(cmd *cobra.Command, flagName string) time.Duration {
+	if cmd.Flags().Changed(flagName) {
+		val, err := cmd.Flags().GetDuration(flagName)
+		if err != nil {
+			return 0
+		}
+		return val
+	}
+	val := viper.GetDuration(flagName)
+	if val == 0 {
+		val, _ = cmd.Flags().GetDuration(flagName)
+	}
+	return val
+}
+
 // GetInt returns an int value from viper, checking flag then env
 func GetInt(cmd *cobra.Command, flagName string) int {
 	if cmd.Flags().Changed(flagName) {
@@ -152,6 +186,19 @@ func GetFloat64(cmd *cobra.Command, flagName string) float64 {
 		return val
 	}
 	return viper.GetFloat64(flagName)
+}
+
+// BuildLLMClient builds a local LLM client when llm-api-addr is set.
+func BuildLLMClient(cmd *cobra.Command) (*llm.Client, error) {
+	addr := GetString(cmd, FlagLLMAPIAddr)
+	if strings.TrimSpace(addr) == "" {
+		return nil, nil
+	}
+	return llm.New(
+		addr,
+		llm.WithModel(GetString(cmd, FlagLLMModel)),
+		llm.WithTimeout(GetDuration(cmd, FlagLLMTimeout)),
+	)
 }
 
 // RequireFlags returns an error if any of the named flags are empty.

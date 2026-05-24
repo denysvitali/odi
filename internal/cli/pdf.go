@@ -41,6 +41,7 @@ func init() {
 	AddOpenSearchFlags(pdfCmd)
 	AddOCRFlags(pdfCmd)
 	AddZefixFlags(pdfCmd)
+	AddLLMFlags(pdfCmd)
 }
 
 func runPDF(cmd *cobra.Command, args []string) error {
@@ -71,6 +72,11 @@ func runPDF(cmd *cobra.Command, args []string) error {
 	}
 	if GetBool(cmd, FlagOsSkipTLS) {
 		opts = append(opts, indexer.WithOpenSearchSkipTLS())
+	}
+
+	llmClient, _ := BuildLLMClient(cmd)
+	if llmClient != nil {
+		opts = append(opts, indexer.WithLLMClient(llmClient))
 	}
 
 	idx, err := indexer.New(

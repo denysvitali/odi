@@ -8,6 +8,7 @@ import (
 
 type Document struct {
 	Date               *time.Time      `json:"date,omitempty"`
+	Title              string          `json:"title,omitempty"`
 	Text               string          `json:"text,omitempty"`
 	Barcode            *Barcode        `json:"barcode,omitempty"`
 	AdditionalBarcodes []Barcode       `json:"additionalBarcodes"`

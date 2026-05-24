@@ -58,6 +58,7 @@ func init() {
 	AddStorageFlags(ingestCmd)
 	AddOCRFlags(ingestCmd)
 	AddZefixFlags(ingestCmd)
+	AddLLMFlags(ingestCmd)
 }
 
 func runIngest(cmd *cobra.Command, args []string) error {
@@ -125,6 +126,11 @@ func buildLocalBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 	if storage == nil {
 		return nil, fmt.Errorf("invalid storage type: must be 'b2' or 'fs'")
 	}
+	llmClient, err := BuildLLMClient(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("local backend: %w", err)
+	}
+
 	return ingestor.NewLocalBackend(ingestor.Config{
 		OcrAPIAddr:         GetString(cmd, FlagOcrAPIAddr),
 		OpenSearchAddr:     GetString(cmd, FlagOsAddr),
@@ -134,6 +140,7 @@ func buildLocalBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 		OpenSearchUsername: GetString(cmd, FlagOsUsername),
 		Storage:            storage,
 		ZefixDsn:           GetString(cmd, FlagZefixDsn),
+		LLMClient:          llmClient,
 	})
 }
 

@@ -35,6 +35,7 @@ func init() {
 	AddOpenSearchFlags(reindexCmd)
 	AddOCRFlags(reindexCmd)
 	AddZefixFlags(reindexCmd)
+	AddLLMFlags(reindexCmd)
 }
 
 func runReindex(cmd *cobra.Command, args []string) error {
@@ -74,6 +75,11 @@ func runReindex(cmd *cobra.Command, args []string) error {
 		opts = append(opts, indexer.WithOpenSearchSkipTLS())
 	}
 	opts = append(opts, indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)))
+
+	llmClient, _ := BuildLLMClient(cmd)
+	if llmClient != nil {
+		opts = append(opts, indexer.WithLLMClient(llmClient))
+	}
 
 	idx, err := indexer.New(
 		GetString(cmd, FlagOsAddr),

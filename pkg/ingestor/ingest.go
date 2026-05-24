@@ -14,6 +14,7 @@ import (
 	"github.com/stapelberg/airscan"
 	"github.com/stapelberg/airscan/preset"
 
+	"github.com/denysvitali/odi/pkg/llm"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
@@ -48,6 +49,7 @@ type Config struct {
 	OpenSearchIndex    string
 	ZefixDsn           string
 	Storage            model.Storer
+	LLMClient          *llm.Client
 }
 
 type Ingestor struct {

@@ -14,6 +14,7 @@ import { useSelection } from '@/composables/useSelection'
 import { useTags } from '@/composables/useTags'
 import { getOpensearchUrl } from '@/lib/config'
 import { formatNumber } from '@/lib/format'
+import { extractTitleFromText } from '@/lib/documentMetadata'
 import type { Document } from '@/types/documents'
 
 const route = useRoute()
@@ -85,9 +86,10 @@ const selectAllVisible = () => selection.selectAll(visibleDocuments.value.map((d
 
 const exportCSV = () => {
   const rows = visibleDocuments.value
-    .filter((d) => selection.selected.value.has(d._id) || !selection.active.value)
+      .filter((d) => selection.selected.value.has(d._id) || !selection.active.value)
     .map((d) => ({
       id: d._id,
+      title: d._source.title || extractTitleFromText(d._source.text || ''),
       company: d._source.company?.name || '',
       primaryDate: d._source.date || '',
       indexedAt: d._source.indexedAt || ''

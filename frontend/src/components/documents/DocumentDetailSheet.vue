@@ -19,6 +19,7 @@ import DocumentCompanyCard from './DocumentCompanyCard.vue'
 import DocumentBarcodeCard from './DocumentBarcodeCard.vue'
 import DocumentTextContent from './DocumentTextContent.vue'
 import DocumentDetailSkeleton from './DocumentDetailSkeleton.vue'
+import { extractCompanyFromText, extractTitleFromText } from '@/lib/documentMetadata'
 import { useDocumentDetails } from '@/composables/useDocumentDetails'
 import { useFavorites } from '@/composables/useFavorites'
 import { useTags } from '@/composables/useTags'
@@ -49,6 +50,17 @@ const fullImageUrl = computed(() => (props.document ? api.fileUrl(props.document
 const docId = computed(() => props.document?._id || '')
 const starred = computed(() => (docId.value ? isFavorite(docId.value) : false))
 const docTags = computed(() => (docId.value ? getTags(docId.value) : []))
+
+const documentTitle = computed(() => {
+  const sourceText = details.value?.text || props.document?._source.text || ''
+  const sourceTitle = details.value?.title || props.document?._source.title || ''
+  return sourceTitle || extractTitleFromText(sourceText)
+})
+
+const inferredCompany = computed(() => {
+  if (details.value?.company?.name) return details.value.company.name
+  return extractCompanyFromText(details.value?.text || props.document?._source.text || '')
+})
 
 const hasBarcodes = computed(() => {
   return details.value?.barcodes && details.value.barcodes.length > 0
@@ -118,7 +130,12 @@ const onAddTag = (e: Event) => {
           </div>
         </div>
         <SheetDescription v-if="document" class="truncate font-mono text-xs">
-          {{ document._id }}
+          <div class="space-y-1">
+            <p>{{ document._id }}</p>
+            <p v-if="documentTitle" class="truncate text-sm font-normal text-foreground">
+              {{ documentTitle }}
+            </p>
+          </div>
         </SheetDescription>
       </SheetHeader>
 
@@ -159,13 +176,17 @@ const onAddTag = (e: Event) => {
                 <ExternalLink class="mr-2 h-4 w-4" aria-hidden="true" />
                 View Full Image
               </Button>
-            </div>
-          </div>
+                </div>
+              </div>
 
-          <div>
-            <div class="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <TagIcon class="h-3.5 w-3.5" aria-hidden="true" />
-              Tags
+              <DocumentDetailSection v-if="documentTitle" title="Subject" :icon="FileText">
+                <p class="text-sm text-foreground">{{ documentTitle }}</p>
+              </DocumentDetailSection>
+
+              <div>
+                <div class="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <TagIcon class="h-3.5 w-3.5" aria-hidden="true" />
+                  Tags
             </div>
             <div class="flex flex-wrap items-center gap-1.5">
               <Badge
@@ -247,6 +268,9 @@ const onAddTag = (e: Event) => {
                 <template v-if="details.company">
                   <DocumentCompanyCard :company="details.company" />
                 </template>
+                <p v-else-if="inferredCompany" class="text-sm text-foreground">
+                  {{ inferredCompany }}
+                </p>
                 <p v-else class="text-sm text-muted-foreground">
                   No company information available
                 </p>

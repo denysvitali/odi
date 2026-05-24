@@ -54,6 +54,7 @@ func init() {
 	AddStorageFlags(serveCmd)
 	AddOCRFlags(serveCmd)
 	AddZefixFlags(serveCmd)
+	AddLLMFlags(serveCmd)
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -87,6 +88,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 		if GetBool(cmd, FlagOsSkipTLS) {
 			opts = append(opts, indexer.WithOpenSearchSkipTLS())
+		}
+
+		llmClient, _ := BuildLLMClient(cmd)
+		if llmClient != nil {
+			opts = append(opts, indexer.WithLLMClient(llmClient))
 		}
 
 		idx, err := indexer.New(

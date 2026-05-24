@@ -55,6 +55,7 @@ func init() {
 	AddOpenSearchFlags(indexCmd)
 	AddOCRFlags(indexCmd)
 	AddZefixFlags(indexCmd)
+	AddLLMFlags(indexCmd)
 }
 
 func runIndex(cmd *cobra.Command, args []string) error {
@@ -168,6 +169,11 @@ func buildLocalIndexBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 		return nil, fmt.Errorf("local backend: %w", err)
 	}
 
+	llmClient, err := BuildLLMClient(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("local backend: %w", err)
+	}
+
 	return ingestor.NewLocalBackend(ingestor.Config{
 		OpenSearchAddr:     GetString(cmd, FlagOsAddr),
 		OpenSearchUsername: GetString(cmd, FlagOsUsername),
@@ -177,5 +183,6 @@ func buildLocalIndexBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 		OcrAPIAddr:         GetString(cmd, FlagOcrAPIAddr),
 		ZefixDsn:           GetString(cmd, FlagZefixDsn),
 		Storage:            nil,
+		LLMClient:          llmClient,
 	})
 }

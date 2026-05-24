@@ -18,11 +18,13 @@ import (
 	"github.com/denysvitali/go-datesfinder"
 	swissqrcode "github.com/denysvitali/go-swiss-qr-bill"
 
+	"github.com/denysvitali/odi/pkg/llm"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/ocrclient"
 	"github.com/denysvitali/odi/pkg/ocrclient/caroundtripper"
 	"github.com/denysvitali/odi/pkg/ocrtext"
 	"github.com/denysvitali/odi/pkg/zefix"
+	zefixtypes "github.com/denysvitali/odi/zefix-tools/pkg/zefix"
 )
 
 type Indexer struct {
@@ -38,6 +40,7 @@ type Indexer struct {
 	opensearchClient *opensearchapi.Client
 	ocrClient        *ocrclient.Client
 	zefixProcessor   *zefix.Processor
+	llmClient        *llm.Client
 
 	mergeDistance      float64
 	horizontalDistance float64
@@ -195,6 +198,18 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 	zefixCompanies := i.zefixProcessor.FindCompanies(documentText)
 	log.Debugf("found %d companies", len(zefixCompanies))
 
+	// LLM-based metadata extraction (best-effort, non-blocking)
+	var llmMeta llm.Metadata
+	if i.llmClient != nil {
+		meta, err := i.llmClient.ExtractMetadata(ctx, documentText)
+		if err != nil {
+			log.WithError(err).Debug("LLM metadata extraction failed, continuing without it")
+		} else {
+			llmMeta = meta
+			log.Debugf("LLM extracted title=%q company=%q", llmMeta.Title, llmMeta.Company)
+		}
+	}
+
 	jsonBuffer := bytes.NewBuffer(nil)
 	enc := json.NewEncoder(jsonBuffer)
 	log.Debugf("getting barcodes for %s", page.ID())
@@ -226,6 +241,13 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 		log.Debugf("found %d companies", len(zefixCompanies))
 		d.Company = &zefixCompanies[0]
 		d.Companies = zefixCompanies
+	}
+	if llmMeta.Title != "" {
+		d.Title = llmMeta.Title
+	}
+	if llmMeta.Company != "" && d.Company == nil {
+		// Use LLM-extracted company only when Zefix didn't find anything.
+		d.Company = &zefixtypes.Company{Name: llmMeta.Company}
 	}
 	err = enc.Encode(d)
 	if err != nil {

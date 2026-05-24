@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ExternalLink, Calendar, Building2, Star, Eye, CheckCircle2, Tag as TagIcon } from 'lucide-vue-next'
+import { ExternalLink, Calendar, Building2, Star, Eye, CheckCircle2, Tag as TagIcon, FileText } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { api } from '@/api/client'
 import { useFavorites } from '@/composables/useFavorites'
 import { useTags } from '@/composables/useTags'
 import type { Document } from '@/types/documents'
+import { extractCompanyFromText, extractTitleFromText } from '@/lib/documentMetadata'
 
 interface Props {
   document: Document
@@ -42,7 +43,14 @@ const highlightedText = computed(() => {
   return props.document.highlight?.text?.[0] || props.document._source.text || ''
 })
 
-const companyName = computed(() => props.document._source.company?.name)
+const extractedTitle = computed(() =>
+  extractTitleFromText(props.document._source.text || '').trim() || 'Untitled Document'
+)
+const companyName = computed(() => {
+  if (props.document._source.company?.name) return props.document._source.company.name
+  return extractCompanyFromText(props.document._source.text || '') || ''
+})
+const cardTitle = computed(() => props.document._source.title || extractedTitle.value)
 const tags = computed(() => getTags(props.document._id))
 const starred = computed(() => isFavorite(props.document._id))
 
@@ -105,10 +113,10 @@ const onToggleStar = (e: MouseEvent) => {
     ]"
     tabindex="0"
     role="button"
-    :aria-label="`Document ${document._id}${companyName ? ', ' + companyName : ''}`"
-    :aria-pressed="selected"
-    @click="handleCardClick"
-    @keydown="handleKeydown"
+      :aria-label="`Document ${document._id}${cardTitle ? ', ' + cardTitle : ''}${companyName ? ', ' + companyName : ''}`"
+      :aria-pressed="selected"
+      @click="handleCardClick"
+      @keydown="handleKeydown"
   >
     <div v-if="selectable" class="absolute left-2 top-2 z-10">
       <div
@@ -181,6 +189,13 @@ const onToggleStar = (e: MouseEvent) => {
     </div>
 
     <CardContent class="p-4">
+      <div class="mb-2 space-y-1">
+        <p class="line-clamp-2 flex items-start gap-1.5 text-sm font-medium">
+          <FileText class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {{ cardTitle }}
+        </p>
+      </div>
+
       <div class="flex items-center gap-2 text-xs text-muted-foreground">
         <Calendar class="h-3 w-3" aria-hidden="true" />
         <span>{{ formatDocId(document._id) }}</span>

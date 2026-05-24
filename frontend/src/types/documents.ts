@@ -36,6 +36,7 @@ export interface Barcode {
 }
 
 export interface InnerDocument {
+  title?: string
   text: string
   company?: Company
   date?: string
@@ -68,6 +69,7 @@ export interface Document {
 }
 
 export interface DocumentDetails {
+  title?: string
   id: string
   dates?: string[]
   primaryDate?: string
