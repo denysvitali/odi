@@ -17,7 +17,7 @@ import type { Document } from '@/types/documents'
 const route = useRoute()
 const router = useRouter()
 
-const { searchTerm, results, loading, total, hasSearched, search } = useSearch({ debounceMs: 300 })
+const { searchTerm, results, loading, loadingMore, total, hasSearched, search, loadMore } = useSearch({ debounceMs: 300 })
 
 const store = useDocumentStore()
 const selectedDocument = ref<Document | null>(null)
@@ -133,10 +133,13 @@ watch(
       <DocumentGrid
         :documents="results"
         :loading="loading"
+        :loading-more="loadingMore"
+        :has-more="results.length < total"
         :search-term="searchTerm"
         :opensearch-url="opensearchUrl"
         empty-action="browse"
         @select-document="handleSelectDocument"
+        @load-more="loadMore"
         @navigate="(p) => router.push(p)"
       />
 

@@ -8,11 +8,12 @@ export interface UseSearchOptions {
 }
 
 export function useSearch(options: UseSearchOptions = {}) {
-  const { debounceMs = 300, pageSize = 12 } = options
+  const { debounceMs = 300, pageSize = 100 } = options
 
   const searchTerm = ref('')
   const results = ref<Document[]>([])
   const loading = ref(false)
+  const loadingMore = ref(false)
   const error = ref<string | null>(null)
   const total = ref<number>(0)
   const scrollId = ref<string | null>(null)
@@ -64,7 +65,7 @@ export function useSearch(options: UseSearchOptions = {}) {
 
   const loadMore = async () => {
     if (!scrollId.value || !searchTerm.value) return
-    loading.value = true
+    loadingMore.value = true
     try {
       const data = await api.search({ scrollId: scrollId.value })
       if (data.hits?.hits) {
@@ -74,7 +75,7 @@ export function useSearch(options: UseSearchOptions = {}) {
     } catch (err) {
       console.error('Error loading more results:', err)
     } finally {
-      loading.value = false
+      loadingMore.value = false
     }
   }
 
@@ -90,6 +91,7 @@ export function useSearch(options: UseSearchOptions = {}) {
     searchTerm,
     results,
     loading,
+    loadingMore,
     error,
     total,
     hasSearched,
