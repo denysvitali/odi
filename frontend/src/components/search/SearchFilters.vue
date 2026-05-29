@@ -463,7 +463,7 @@ const totalWithoutBarcode = computed(() => props.facets.totalHits - props.facets
                 @change="toggleCompany(bucket.key)"
               />
               <span class="flex-1 truncate">{{ bucket.key }}</span>
-              <span class="text-xs text-muted-foreground">{{ bucket.count }}</span>
+              <span class="text-xs text-muted-foreground">{{ bucket.doc_count }}</span>
             </label>
           </div>
         </div>
@@ -541,12 +541,12 @@ const totalWithoutBarcode = computed(() => props.facets.totalHits - props.facets
             >
               <span>{{ barcodeLabel }}</span>
               <span v-if="hasBarcode !== undefined" class="text-xs text-muted-foreground">
-                {{ hasBarcode ? facets.totalWithBarcode : facets.totalWithoutBarcode }}
+                {{ hasBarcode ? facets.barcodeCount : totalWithoutBarcode }}
               </span>
             </button>
             <div v-if="hasBarcodeData" class="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{{ facets.totalWithBarcode }} with barcode</span>
-              <span>{{ facets.totalWithoutBarcode }} without</span>
+              <span>{{ facets.barcodeCount }} with barcode</span>
+              <span>{{ totalWithoutBarcode }} without</span>
             </div>
           </div>
         </div>

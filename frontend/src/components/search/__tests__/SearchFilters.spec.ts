@@ -228,8 +228,8 @@ describe('SearchFilters', () => {
       })
 
       const dateInputs = wrapper.findAll('input[type="date"]')
-      expect(dateInputs[0].element.value).toBe('2024-03-01')
-      expect(dateInputs[1].element.value).toBe('2024-03-31')
+      expect((dateInputs[0].element as HTMLInputElement).value).toBe('2024-03-01')
+      expect((dateInputs[1].element as HTMLInputElement).value).toBe('2024-03-31')
     })
   })
 
