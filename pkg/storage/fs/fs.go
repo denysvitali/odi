@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,20 +17,9 @@ import (
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
 
-// validScanIDRegex matches only alphanumeric characters, hyphens, and underscores
-var validScanIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
 // validateScanID validates that the scanID only contains safe characters
-// and does not contain path traversal sequences
-func validateScanID(scanID string) error {
-	if scanID == "" {
-		return fmt.Errorf("scanID cannot be empty")
-	}
-	if !validScanIDRegex.MatchString(scanID) {
-		return fmt.Errorf("scanID contains invalid characters: only alphanumeric characters, hyphens, and underscores are allowed")
-	}
-	return nil
-}
+// and does not contain path traversal sequences.
+var validateScanID = model.ValidateScanID
 
 var log = logrus.StandardLogger().WithField("package", "storage/fs")
 

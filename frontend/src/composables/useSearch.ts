@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { api, ApiError } from '@/api/client'
+import { api } from '@/api/client'
+import { errorMessage } from '@/lib/utils'
 import type { Document } from '@/types/documents'
 
 export interface UseSearchOptions {
@@ -50,7 +51,7 @@ export function useSearch(options: UseSearchOptions = {}) {
         total.value = 0
       }
     } catch (err) {
-      error.value = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Search failed'
+      error.value = errorMessage(err, 'Search failed')
       results.value = []
       total.value = 0
     } finally {

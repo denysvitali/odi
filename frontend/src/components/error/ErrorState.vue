@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { AlertCircle, RefreshCw, Copy, Check } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { useClipboard } from '@/composables/useClipboard'
 
 interface Props {
   title?: string
@@ -17,7 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
   lastRetryAt: null
 })
 
-const copied = ref(false)
+const { copied, copy } = useClipboard()
 
 const formattedLastRetry = computed(() => {
   if (!props.lastRetryAt) return null
@@ -33,31 +34,13 @@ const formattedLastRetry = computed(() => {
   return props.lastRetryAt.toLocaleDateString()
 })
 
-const copyErrorDetails = async () => {
+const copyErrorDetails = () => {
   const details = {
     message: props.message,
     timestamp: new Date().toISOString(),
     url: window.location.href
   }
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(details, null, 2))
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  } catch {
-    // Fallback for older browsers
-    const textarea = document.createElement('textarea')
-    textarea.value = JSON.stringify(details, null, 2)
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  }
+  return copy(JSON.stringify(details, null, 2), 'error details')
 }
 
 const friendlyMessage = computed(() => {

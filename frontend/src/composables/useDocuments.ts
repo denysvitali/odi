@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
-import { api, ApiError } from '@/api/client'
+import { api } from '@/api/client'
+import { errorMessage } from '@/lib/utils'
 import type { Document } from '@/types/documents'
 
 export interface UseDocumentsOptions {
@@ -48,7 +49,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         scrollId.value = data._scroll_id || null
       }
     } catch (err) {
-      error.value = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to load documents'
+      error.value = errorMessage(err, 'Failed to load documents')
     } finally {
       loading.value = false
     }

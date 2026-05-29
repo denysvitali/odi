@@ -338,45 +338,10 @@ func (i *Indexer) getText(result *ocrclient.OcrResult) string {
 }
 
 func (i *Indexer) createOpensearchIndex(ctx context.Context) error {
-	exists, err := i.opensearchTargetExists(ctx, i.documentsIndex)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
-	resp, err := i.opensearchClient.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: i.documentsIndex})
-	if err != nil {
-		return fmt.Errorf("create index: %w", err)
-	}
-	defer resp.Inspect().Response.Body.Close()
-
-	statusCode := resp.Inspect().Response.StatusCode
-	if statusCode == http.StatusOK || statusCode == http.StatusCreated {
-		return nil
-	}
-	if statusCode == http.StatusBadRequest {
-		errorMessage := decodeError(resp.Inspect().Response.Body)
-		if strings.Contains(errorMessage, "resource_already_exists_exception") ||
-			strings.Contains(errorMessage, "already exists as alias") {
-			return nil
-		}
-		return fmt.Errorf("create index returned %s: %s", resp.Inspect().Response.Status(), errorMessage)
-	}
-
-	return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
+	return i.createIndex(ctx, i.documentsIndex, nil)
 }
 
 func (i *Indexer) createContentDigestIndex(ctx context.Context) error {
-	exists, err := i.opensearchTargetExists(ctx, i.contentDigestIndex())
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
 	body := strings.NewReader(`{
 		"mappings": {
 			"properties": {
@@ -385,12 +350,27 @@ func (i *Indexer) createContentDigestIndex(ctx context.Context) error {
 			}
 		}
 	}`)
+	return i.createIndex(ctx, i.contentDigestIndex(), body)
+}
+
+// createIndex creates the named index with the optional mapping body. It is a
+// no-op if the index (or an alias with that name) already exists, which makes it
+// safe to call on every startup.
+func (i *Indexer) createIndex(ctx context.Context, name string, body io.Reader) error {
+	exists, err := i.opensearchTargetExists(ctx, name)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
 	resp, err := i.opensearchClient.Indices.Create(ctx, opensearchapi.IndicesCreateReq{
-		Index: i.contentDigestIndex(),
+		Index: name,
 		Body:  body,
 	})
 	if err != nil {
-		return fmt.Errorf("create content digest index: %w", err)
+		return fmt.Errorf("create index %s: %w", name, err)
 	}
 	defer resp.Inspect().Response.Body.Close()
 
@@ -404,10 +384,10 @@ func (i *Indexer) createContentDigestIndex(ctx context.Context) error {
 			strings.Contains(errorMessage, "already exists as alias") {
 			return nil
 		}
-		return fmt.Errorf("create content digest index returned %s: %s", resp.Inspect().Response.Status(), errorMessage)
+		return fmt.Errorf("create index %s returned %s: %s", name, resp.Inspect().Response.Status(), errorMessage)
 	}
 
-	return fmt.Errorf("unexpected status %s", resp.Inspect().Response.Status())
+	return fmt.Errorf("create index %s: unexpected status %s", name, resp.Inspect().Response.Status())
 }
 
 func (i *Indexer) opensearchTargetExists(ctx context.Context, name string) (bool, error) {

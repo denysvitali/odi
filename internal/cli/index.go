@@ -168,21 +168,7 @@ func buildLocalIndexBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 	if err := RequireFlags(cmd, FlagOsAddr, FlagOcrAPIAddr, FlagZefixDsn); err != nil {
 		return nil, fmt.Errorf("local backend: %w", err)
 	}
-
-	llmClient, err := BuildLLMClient(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("local backend: %w", err)
-	}
-
-	return ingestor.NewLocalBackend(ingestor.Config{
-		OpenSearchAddr:     GetString(cmd, FlagOsAddr),
-		OpenSearchUsername: GetString(cmd, FlagOsUsername),
-		OpenSearchPassword: GetString(cmd, FlagOsPassword),
-		OpenSearchSkipTLS:  GetBool(cmd, FlagOsSkipTLS),
-		OpenSearchIndex:    GetString(cmd, FlagOsIndex),
-		OcrAPIAddr:         GetString(cmd, FlagOcrAPIAddr),
-		ZefixDsn:           GetString(cmd, FlagZefixDsn),
-		Storage:            nil,
-		LLMClient:          llmClient,
-	})
+	// No storage: the index command reads pages from disk and only writes to
+	// OpenSearch, it never persists the original scans.
+	return newLocalBackend(cmd, nil)
 }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { QrCode, CreditCard, Copy, Check } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/format'
+import { useClipboard } from '@/composables/useClipboard'
 import type { Barcode } from '@/types/documents'
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const copied = ref(false)
+const { copied, copy } = useClipboard()
 
 const isQrBill = computed(() => !!props.barcode.qrBill)
 
@@ -22,15 +23,7 @@ const formatIban = (iban?: string) => {
   return iban.replace(/(.{4})/g, '$1 ').trim()
 }
 
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
-    copied.value = true
-    setTimeout(() => (copied.value = false), 2000)
-  } catch (err) {
-    console.error('Failed to copy:', err)
-  }
-}
+const copyToClipboard = (text: string) => copy(text, 'barcode')
 </script>
 
 <template>

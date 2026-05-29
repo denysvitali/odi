@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { ExternalLink, Building2, MapPin, Tag, Copy, Check } from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { Company } from '@/types/documents'
-import { logger } from '@/lib/logger'
+import { useClipboard } from '@/composables/useClipboard'
 
 interface Props {
   company: Company
 }
 
 const props = defineProps<Props>()
-const copied = ref(false)
+const { copied, copy } = useClipboard()
 
 const zefixUrl = computed(() => {
   if (!props.company.uri) return null
@@ -23,15 +23,9 @@ const isPrimary = computed(() => props.company.type === 'primary')
 
 const addressLine = computed(() => props.company.address || props.company.locality || '')
 
-const copyAddress = async () => {
+const copyAddress = () => {
   if (!addressLine.value) return
-  try {
-    await navigator.clipboard.writeText(addressLine.value)
-    copied.value = true
-    setTimeout(() => (copied.value = false), 2000)
-  } catch (err) {
-    logger.warn('DocumentCompanyCard: failed to copy address to clipboard', err)
-  }
+  return copy(addressLine.value, 'company address')
 }
 </script>
 

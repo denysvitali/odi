@@ -11,6 +11,7 @@ import (
 
 	"github.com/denysvitali/odi/internal/ui"
 	"github.com/denysvitali/odi/pkg/ingestor"
+	"github.com/denysvitali/odi/pkg/storage/model"
 )
 
 const (
@@ -126,6 +127,13 @@ func buildLocalBackend(cmd *cobra.Command) (ingestor.Backend, error) {
 	if storage == nil {
 		return nil, fmt.Errorf("invalid storage type: must be 'b2' or 'fs'")
 	}
+	return newLocalBackend(cmd, storage)
+}
+
+// newLocalBackend assembles a local ingestor backend from the shared OpenSearch,
+// OCR, Zefix and LLM flags. storage may be nil for read/index-only commands that
+// don't persist pages.
+func newLocalBackend(cmd *cobra.Command, storage model.Storer) (ingestor.Backend, error) {
 	llmClient, err := BuildLLMClient(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("local backend: %w", err)

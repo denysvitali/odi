@@ -311,30 +311,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 	}
 
 	if searchRequest.ScrollId != "" {
-		// Continue pagination using scroll (extend TTL to keep context alive)
-		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
-			ScrollID: searchRequest.ScrollId,
-			Params: opensearchapi.ScrollGetParams{
-				Scroll: 10 * time.Minute,
-			},
-		})
-		if err != nil {
-			log.Errorf("unable to perform scroll (scrollId=%q): %v", searchRequest.ScrollId, err)
-			c.JSON(http.StatusInternalServerError, internalServerError)
-			return
-		}
-		defer scrollResp.Inspect().Response.Body.Close()
-		if scrollResp.Inspect().Response.StatusCode >= 400 {
-			log.Errorf("scroll returned error (scrollId=%q): %s", searchRequest.ScrollId, scrollResp.Inspect().Response.Status())
-			c.JSON(http.StatusInternalServerError, internalServerError)
-			return
-		}
-		c.Status(http.StatusOK)
-		c.Header("Content-Type", "application/json")
-		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
-		if err != nil {
-			logStreamError(c, err, fmt.Sprintf("unable to stream scroll response (scrollId=%q)", searchRequest.ScrollId))
-		}
+		s.streamScroll(c, searchRequest.ScrollId, fmt.Sprintf("scrollId=%q", searchRequest.ScrollId))
 		return
 	}
 
@@ -391,11 +368,40 @@ func (s *Server) handleSearch(c *gin.Context) {
 		return
 	}
 
+	s.streamResponseBody(c, searchResp.Inspect().Response.Body, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
+}
+
+// streamScroll continues an OpenSearch scroll request and streams the raw
+// response body back to the client. logCtx annotates any error logs.
+func (s *Server) streamScroll(c *gin.Context, scrollID, logCtx string) {
+	// Extend the TTL on every page so paging stays alive across many loads.
+	scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
+		ScrollID: scrollID,
+		Params: opensearchapi.ScrollGetParams{
+			Scroll: 10 * time.Minute,
+		},
+	})
+	if err != nil {
+		log.Errorf("unable to perform scroll (%s): %v", logCtx, err)
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+	defer scrollResp.Inspect().Response.Body.Close()
+	if scrollResp.Inspect().Response.StatusCode >= 400 {
+		log.Errorf("scroll returned error (%s): %s", logCtx, scrollResp.Inspect().Response.Status())
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+	s.streamResponseBody(c, scrollResp.Inspect().Response.Body, fmt.Sprintf("unable to stream scroll response (%s)", logCtx))
+}
+
+// streamResponseBody copies a raw JSON response body to the client, logging a
+// streaming error with errMsg if the copy fails mid-flight.
+func (s *Server) streamResponseBody(c *gin.Context, body io.Reader, errMsg string) {
 	c.Status(http.StatusOK)
 	c.Header("Content-Type", "application/json")
-	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
-	if err != nil {
-		logStreamError(c, err, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
+	if _, err := io.Copy(c.Writer, body); err != nil {
+		logStreamError(c, err, errMsg)
 	}
 }
 
@@ -612,30 +618,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 	var err error
 
 	if scrollId != "" {
-		// Continue scroll (extend TTL so paging stays alive across many loads)
-		scrollResp, err := s.osClient.Scroll.Get(c.Request.Context(), opensearchapi.ScrollGetReq{
-			ScrollID: scrollId,
-			Params: opensearchapi.ScrollGetParams{
-				Scroll: 10 * time.Minute,
-			},
-		})
-		if err != nil {
-			log.Errorf("unable to get documents (scroll): %v", err)
-			c.JSON(http.StatusInternalServerError, internalServerError)
-			return
-		}
-		defer scrollResp.Inspect().Response.Body.Close()
-		if scrollResp.Inspect().Response.StatusCode >= 400 {
-			log.Warnf("unable to get documents (scroll): %s", scrollResp.Inspect().Response.Status())
-			c.JSON(http.StatusInternalServerError, internalServerError)
-			return
-		}
-		c.Status(http.StatusOK)
-		c.Header("Content-Type", "application/json")
-		_, err = io.Copy(c.Writer, scrollResp.Inspect().Response.Body)
-		if err != nil {
-			logStreamError(c, err, "unable to stream documents response (scroll)")
-		}
+		s.streamScroll(c, scrollId, "documents scroll")
 		return
 	}
 
@@ -719,12 +702,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusOK)
-	c.Header("Content-Type", "application/json")
-	_, err = io.Copy(c.Writer, searchResp.Inspect().Response.Body)
-	if err != nil {
-		logStreamError(c, err, "unable to stream documents response")
-	}
+	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream documents response")
 }
 
 func (s *Server) pingOs(ctx context.Context) error {

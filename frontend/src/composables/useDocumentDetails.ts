@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { api, ApiError } from '@/api/client'
+import { api } from '@/api/client'
+import { errorMessage } from '@/lib/utils'
 import type { DocumentDetails } from '@/types/documents'
 
 export function useDocumentDetails() {
@@ -15,7 +16,7 @@ export function useDocumentDetails() {
     try {
       details.value = await api.getDocumentDetails(documentId, { skipCache })
     } catch (err) {
-      error.value = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Failed to load document details'
+      error.value = errorMessage(err, 'Failed to load document details')
     } finally {
       loading.value = false
     }

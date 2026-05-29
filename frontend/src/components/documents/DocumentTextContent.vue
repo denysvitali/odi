@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { Copy, Check, BookOpen, Type } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { logger } from '@/lib/logger'
+import { useClipboard } from '@/composables/useClipboard'
 
 interface Props {
   text: string
@@ -12,18 +12,10 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const copied = ref(false)
+const { copied, copy } = useClipboard()
 const reading = ref(false)
 
-const copyToClipboard = async () => {
-  try {
-    await navigator.clipboard.writeText(props.text)
-    copied.value = true
-    setTimeout(() => (copied.value = false), 2000)
-  } catch (err) {
-    logger.error('failed to copy text to clipboard', err)
-  }
-}
+const copyToClipboard = () => copy(props.text, 'document text')
 
 function escapeHtml(s: string): string {
   return s
