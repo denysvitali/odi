@@ -280,6 +280,7 @@ func (s *Server) initRoutes() {
 		g.Use(authMiddleware(s.apiToken))
 	}
 	g.POST("/search", s.handleSearch)
+	g.POST("/search/facets", s.handleSearchFacets)
 	g.GET("/documents/:id", s.handleGetDocument)
 	g.GET("/documents", s.handleGetDocuments)
 	g.GET("/files/:scanID/:sequenceId", s.handleGetFile)

@@ -1,23 +1,41 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { FileText, Trash2, Sparkles, TrendingUp } from 'lucide-vue-next'
+import { FileText, Trash2, Sparkles, TrendingUp, X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import SearchInput from '@/components/search/SearchInput.vue'
+import SearchFilters from '@/components/search/SearchFilters.vue'
 import ResultsCounter from '@/components/search/ResultsCounter.vue'
 import DocumentGrid from '@/components/documents/DocumentGrid.vue'
 import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
 import PageContainer from '@/components/layout/PageContainer.vue'
 import { useSearch } from '@/composables/useSearch'
+import { useFacets } from '@/composables/useFacets'
 import { useDocumentStore } from '@/stores/documents'
 import { getOpensearchUrl } from '@/lib/config'
 import { formatNumber } from '@/lib/format'
 import type { Document } from '@/types/documents'
+import type { SearchFilters as SearchFiltersType } from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
 
-const { searchTerm, results, loading, loadingMore, total, hasSearched, search, loadMore } = useSearch({ debounceMs: 300 })
+const {
+  searchTerm,
+  results,
+  loading,
+  loadingMore,
+  total,
+  hasSearched,
+  activeFilters,
+  activeFilterCount,
+  search,
+  loadMore,
+  clearFilters,
+} = useSearch({ debounceMs: 300 })
+
+const { facets, loading: facetsLoading } = useFacets(searchTerm, activeFilters)
 
 const store = useDocumentStore()
 const selectedDocument = ref<Document | null>(null)
@@ -31,21 +49,82 @@ const handleSelectDocument = (doc: Document) => {
 }
 
 const handleSearch = () => {
-  if (searchTerm.value.trim()) {
+  if (searchTerm.value.trim() || activeFilterCount.value > 0) {
     search(searchTerm.value)
-    store.addRecentSearch(searchTerm.value)
-    router.replace({ path: '/', query: { q: searchTerm.value } })
+    if (searchTerm.value.trim()) {
+      store.addRecentSearch(searchTerm.value)
+    }
+    router.replace({
+      path: '/',
+      query: {
+        q: searchTerm.value,
+        ...(activeFilters.value.companies?.length ? { companies: activeFilters.value.companies.join(',') } : {}),
+        ...(activeFilters.value.dateFrom ? { dateFrom: activeFilters.value.dateFrom } : {}),
+        ...(activeFilters.value.dateTo ? { dateTo: activeFilters.value.dateTo } : {}),
+        ...(activeFilters.value.hasBarcode !== undefined ? { hasBarcode: String(activeFilters.value.hasBarcode) } : {}),
+        ...(activeFilters.value.titleFilter ? { title: activeFilters.value.titleFilter } : {}),
+      },
+    })
   }
 }
 
+const handleFiltersUpdate = (filters: SearchFiltersType) => {
+  activeFilters.value = filters
+  if (searchTerm.value.trim() || activeFilterCount.value > 0) {
+    search(searchTerm.value)
+    router.replace({
+      path: '/',
+      query: {
+        q: searchTerm.value,
+        ...(filters.companies?.length ? { companies: filters.companies.join(',') } : {}),
+        ...(filters.dateFrom ? { dateFrom: filters.dateFrom } : {}),
+        ...(filters.dateTo ? { dateTo: filters.dateTo } : {}),
+        ...(filters.hasBarcode !== undefined ? { hasBarcode: String(filters.hasBarcode) } : {}),
+        ...(filters.titleFilter ? { title: filters.titleFilter } : {}),
+      },
+    })
+  }
+}
+
+const handleClearFilters = () => {
+  clearFilters()
+  router.replace({ path: '/', query: { q: searchTerm.value } })
+}
+
 const clearHistory = () => store.clearRecentSearches()
+
+// Parse filters from URL query
+const parseFiltersFromQuery = (): SearchFiltersType => {
+  const q = route.query
+  const filters: SearchFiltersType = {}
+
+  if (typeof q.companies === 'string' && q.companies) {
+    filters.companies = q.companies.split(',').filter(Boolean)
+  }
+  if (typeof q.dateFrom === 'string' && q.dateFrom) {
+    filters.dateFrom = q.dateFrom
+  }
+  if (typeof q.dateTo === 'string' && q.dateTo) {
+    filters.dateTo = q.dateTo
+  }
+  if (typeof q.hasBarcode === 'string') {
+    filters.hasBarcode = q.hasBarcode === 'true'
+  }
+  if (typeof q.title === 'string' && q.title) {
+    filters.titleFilter = q.title
+  }
+
+  return filters
+}
 
 onMounted(() => {
   store.loadRecentSearches()
   const q = route.query.q
   if (typeof q === 'string' && q.trim()) {
     searchTerm.value = q
-    search(q)
+    const filters = parseFiltersFromQuery()
+    activeFilters.value = filters
+    search(q, filters)
   }
 })
 
@@ -54,7 +133,9 @@ watch(
   (q) => {
     if (typeof q === 'string' && q !== searchTerm.value) {
       searchTerm.value = q
-      if (q) search(q)
+      const filters = parseFiltersFromQuery()
+      activeFilters.value = filters
+      if (q || activeFilterCount.value > 0) search(q, filters)
     }
   }
 )
@@ -124,24 +205,51 @@ watch(
 
     <div v-if="hasSearched" class="space-y-6">
       <div class="flex items-center justify-between">
-        <ResultsCounter :count="results.length" :total="total" :loading="loading" />
+        <div class="flex items-center gap-3">
+          <ResultsCounter :count="results.length" :total="total" :loading="loading" />
+          <Badge v-if="activeFilterCount > 0" variant="secondary" class="gap-1">
+            {{ activeFilterCount }} filter{{ activeFilterCount === 1 ? '' : 's' }}
+            <button
+              type="button"
+              class="ml-1 rounded-full hover:bg-muted-foreground/20"
+              @click="handleClearFilters"
+            >
+              <X class="h-3 w-3" />
+            </button>
+          </Badge>
+        </div>
         <Button variant="ghost" size="sm" @click="searchTerm = ''; search('')">
           Clear
         </Button>
       </div>
 
-      <DocumentGrid
-        :documents="results"
-        :loading="loading"
-        :loading-more="loadingMore"
-        :has-more="results.length < total"
-        :search-term="searchTerm"
-        :opensearch-url="opensearchUrl"
-        empty-action="browse"
-        @select-document="handleSelectDocument"
-        @load-more="loadMore"
-        @navigate="(p) => router.push(p)"
-      />
+      <div class="flex gap-6">
+        <!-- Filters sidebar (mobile toggle + desktop sidebar) -->
+        <SearchFilters
+          :filters="activeFilters"
+          :facets="facets"
+          :loading="facetsLoading"
+          :active-count="activeFilterCount"
+          @update:filters="handleFiltersUpdate"
+          @clear="handleClearFilters"
+        />
+
+        <!-- Results grid -->
+        <div class="flex-1 min-w-0">
+          <DocumentGrid
+            :documents="results"
+            :loading="loading"
+            :loading-more="loadingMore"
+            :has-more="results.length < total"
+            :search-term="searchTerm"
+            :opensearch-url="opensearchUrl"
+            empty-action="browse"
+            @select-document="handleSelectDocument"
+            @load-more="loadMore"
+            @navigate="(p) => router.push(p)"
+          />
+        </div>
+      </div>
 
       <p v-if="total > 0" class="text-center text-xs text-muted-foreground">
         {{ formatNumber(total) }} total match{{ total === 1 ? '' : 'es' }}

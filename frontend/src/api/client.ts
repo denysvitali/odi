@@ -3,6 +3,26 @@ import { STORAGE_KEYS } from '@/lib/constants'
 import { logger } from '@/lib/logger'
 import type { Document, DocumentDetails, SearchResult } from '@/types/documents'
 
+export interface SearchFilters {
+  companies?: string[]
+  dateFrom?: string
+  dateTo?: string
+  hasBarcode?: boolean
+  titleFilter?: string
+}
+
+export interface FacetBucket {
+  key: string
+  doc_count: number
+}
+
+export interface FacetData {
+  companies: FacetBucket[]
+  dateHistogram: FacetBucket[]
+  barcodeCount: number
+  totalHits: number
+}
+
 export interface ReindexPageError {
   page: string
   error: string
@@ -107,11 +127,43 @@ export const api = {
     return request(`/documents?${qs.toString()}`)
   },
 
-  search(params: { searchTerm?: string; scrollId?: string; size?: number }): Promise<SearchResult<Document>> {
+  search(params: { searchTerm?: string; scrollId?: string; size?: number; filters?: SearchFilters }): Promise<SearchResult<Document>> {
+    // Flatten filters to top-level fields to match backend SearchRequest struct
+    const body: Record<string, unknown> = {
+      searchTerm: params.searchTerm,
+      scrollId: params.scrollId,
+      size: params.size,
+    }
+    if (params.filters) {
+      if (params.filters.companies?.length) body.companies = params.filters.companies
+      if (params.filters.dateFrom) body.dateFrom = params.filters.dateFrom
+      if (params.filters.dateTo) body.dateTo = params.filters.dateTo
+      if (params.filters.hasBarcode !== undefined) body.hasBarcode = params.filters.hasBarcode
+      if (params.filters.titleFilter) body.title = params.filters.titleFilter
+    }
     return request('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
+      body: JSON.stringify(body)
+    })
+  },
+
+  searchFacets(params: { searchTerm?: string; filters?: SearchFilters }): Promise<FacetData> {
+    // Flatten filters to top-level fields to match backend SearchFacetsRequest struct
+    const body: Record<string, unknown> = {
+      searchTerm: params.searchTerm,
+    }
+    if (params.filters) {
+      if (params.filters.companies?.length) body.companies = params.filters.companies
+      if (params.filters.dateFrom) body.dateFrom = params.filters.dateFrom
+      if (params.filters.dateTo) body.dateTo = params.filters.dateTo
+      if (params.filters.hasBarcode !== undefined) body.hasBarcode = params.filters.hasBarcode
+      if (params.filters.titleFilter) body.title = params.filters.titleFilter
+    }
+    return request('/search/facets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     })
   },
 

@@ -20,9 +20,14 @@ import (
 )
 
 type SearchRequest struct {
-	SearchTerm string `json:"searchTerm"`
-	Size       int    `json:"size,omitempty" binding:"omitempty,max=1000"`
-	ScrollId   string `json:"scrollId,omitempty"`
+	SearchTerm string   `json:"searchTerm"`
+	Size       int      `json:"size,omitempty" binding:"omitempty,max=1000"`
+	ScrollId   string   `json:"scrollId,omitempty"`
+	Companies  []string `json:"companies,omitempty"`
+	DateFrom   string   `json:"dateFrom,omitempty"`
+	DateTo     string   `json:"dateTo,omitempty"`
+	HasBarcode *bool    `json:"hasBarcode,omitempty"`
+	Title      string   `json:"title,omitempty"`
 }
 
 func (s *Server) handleSearch(c *gin.Context) {
@@ -48,15 +53,29 @@ func (s *Server) handleSearch(c *gin.Context) {
 		return
 	}
 
-	searchContent := map[string]any{
-		"size": size,
-		"query": map[string]any{
-			"query_string": map[string]any{
-				"query":            searchRequest.SearchTerm,
-				"fields":           []string{"text"},
-				"default_operator": "AND",
-			},
+	queryString := map[string]any{
+		"query_string": map[string]any{
+			"query":            searchRequest.SearchTerm,
+			"fields":           []string{"text", "company.name", "title"},
+			"default_operator": "AND",
 		},
+	}
+
+	filters := buildSearchFilters(searchRequest)
+
+	query := queryString
+	if len(filters) > 0 {
+		query = map[string]any{
+			"bool": map[string]any{
+				"must":   []any{queryString},
+				"filter": filters,
+			},
+		}
+	}
+
+	searchContent := map[string]any{
+		"size":  size,
+		"query": query,
 		"highlight": map[string]any{
 			"fields": map[string]any{
 				"text": map[string]any{},
@@ -92,6 +111,150 @@ func (s *Server) handleSearch(c *gin.Context) {
 	}
 
 	s.streamResponseBody(c, searchResp.Inspect().Response.Body, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
+}
+
+// buildSearchFilters constructs OpenSearch filter clauses from the structured
+// filter fields in the search request. Returns nil when no filters are set.
+func buildSearchFilters(req SearchRequest) []map[string]any {
+	var filters []map[string]any
+
+	if len(req.Companies) > 0 {
+		filters = append(filters, map[string]any{
+			"terms": map[string]any{
+				"company.name.keyword": req.Companies,
+			},
+		})
+	}
+
+	if req.DateFrom != "" || req.DateTo != "" {
+		rangeFilter := map[string]any{}
+		if req.DateFrom != "" {
+			rangeFilter["gte"] = req.DateFrom
+		}
+		if req.DateTo != "" {
+			rangeFilter["lte"] = req.DateTo
+		}
+		filters = append(filters, map[string]any{
+			"range": map[string]any{
+				"date": rangeFilter,
+			},
+		})
+	}
+
+	if req.HasBarcode != nil {
+		filters = append(filters, map[string]any{
+			"exists": map[string]any{
+				"field": "barcode",
+			},
+		})
+	}
+
+	if req.Title != "" {
+		filters = append(filters, map[string]any{
+			"match": map[string]any{
+				"title": req.Title,
+			},
+		})
+	}
+
+	return filters
+}
+
+// SearchFacetsRequest carries the same filter fields as SearchRequest but no
+// pagination or scroll controls — it is used to request aggregation buckets.
+type SearchFacetsRequest struct {
+	SearchTerm string   `json:"searchTerm"`
+	Companies  []string `json:"companies,omitempty"`
+	DateFrom   string   `json:"dateFrom,omitempty"`
+	DateTo     string   `json:"dateTo,omitempty"`
+	HasBarcode *bool    `json:"hasBarcode,omitempty"`
+	Title      string   `json:"title,omitempty"`
+}
+
+func (s *Server) handleSearchFacets(c *gin.Context) {
+	var req SearchFacetsRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, badRequest)
+		return
+	}
+
+	queryString := map[string]any{
+		"query_string": map[string]any{
+			"query":            req.SearchTerm,
+			"fields":           []string{"text", "company.name", "title"},
+			"default_operator": "AND",
+		},
+	}
+
+	filters := buildSearchFilters(SearchRequest{
+		Companies:  req.Companies,
+		DateFrom:   req.DateFrom,
+		DateTo:     req.DateTo,
+		HasBarcode: req.HasBarcode,
+		Title:      req.Title,
+	})
+
+	query := queryString
+	if len(filters) > 0 {
+		query = map[string]any{
+			"bool": map[string]any{
+				"must":   []any{queryString},
+				"filter": filters,
+			},
+		}
+	}
+
+	searchContent := map[string]any{
+		"size":  0,
+		"query": query,
+		"aggs": map[string]any{
+			"companies": map[string]any{
+				"terms": map[string]any{
+					"field": "company.name.keyword",
+					"size":  20,
+				},
+			},
+			"date_histogram": map[string]any{
+				"date_histogram": map[string]any{
+					"field":             "date",
+					"calendar_interval": "month",
+				},
+			},
+			"barcode_count": map[string]any{
+				"filter": map[string]any{
+					"exists": map[string]any{
+						"field": "barcode",
+					},
+				},
+			},
+		},
+	}
+
+	jsonBody, marshalErr := json.Marshal(searchContent)
+	if marshalErr != nil {
+		log.Errorf("unable to marshal facets body for term=%q: %v", req.SearchTerm, marshalErr)
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+
+	searchResp, err := s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
+		Indices: []string{s.osIndex},
+		Body:    bytes.NewReader(jsonBody),
+	})
+	if err != nil {
+		log.Errorf("unable to perform facets search (term=%q): %v", req.SearchTerm, err)
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+	defer searchResp.Inspect().Response.Body.Close()
+
+	if searchResp.Inspect().Response.StatusCode >= 400 {
+		log.Errorf("facets search returned error (term=%q): %s", req.SearchTerm, searchResp.Inspect().Response.Status())
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+
+	s.streamResponseBody(c, searchResp.Inspect().Response.Body, fmt.Sprintf("unable to stream facets response (term=%q)", req.SearchTerm))
 }
 
 // streamScroll continues an OpenSearch scroll request and streams the raw

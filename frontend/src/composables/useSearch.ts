@@ -1,7 +1,8 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '@/api/client'
 import { errorMessage } from '@/lib/utils'
 import type { Document } from '@/types/documents'
+import type { SearchFilters } from '@/api/client'
 
 export interface UseSearchOptions {
   debounceMs?: number
@@ -19,17 +20,32 @@ export function useSearch(options: UseSearchOptions = {}) {
   const total = ref<number>(0)
   const scrollId = ref<string | null>(null)
   const hasSearched = ref(false)
+  const activeFilters = ref<SearchFilters>({})
 
   let debounceTimeout: ReturnType<typeof setTimeout> | null = null
 
-  const search = async (term: string) => {
+  const activeFilterCount = computed(() => {
+    let count = 0
+    if (activeFilters.value.companies?.length) count += activeFilters.value.companies.length
+    if (activeFilters.value.dateFrom) count++
+    if (activeFilters.value.dateTo) count++
+    if (activeFilters.value.hasBarcode !== undefined) count++
+    if (activeFilters.value.titleFilter?.trim()) count++
+    return count
+  })
+
+  const search = async (term: string, filters?: SearchFilters) => {
     if (debounceTimeout) {
       clearTimeout(debounceTimeout)
       debounceTimeout = null
     }
     searchTerm.value = term
 
-    if (!term.trim()) {
+    if (filters !== undefined) {
+      activeFilters.value = filters
+    }
+
+    if (!term.trim() && activeFilterCount.value === 0) {
       results.value = []
       total.value = 0
       hasSearched.value = false
@@ -41,7 +57,11 @@ export function useSearch(options: UseSearchOptions = {}) {
     hasSearched.value = true
 
     try {
-      const data = await api.search({ searchTerm: term, size: pageSize })
+      const data = await api.search({
+        searchTerm: term,
+        size: pageSize,
+        filters: activeFilterCount.value > 0 ? activeFilters.value : undefined,
+      })
       if (data.hits) {
         results.value = data.hits.hits
         total.value = data.hits.total?.value || 0
@@ -59,9 +79,9 @@ export function useSearch(options: UseSearchOptions = {}) {
     }
   }
 
-  const debouncedSearch = (term: string) => {
+  const debouncedSearch = (term: string, filters?: SearchFilters) => {
     if (debounceTimeout) clearTimeout(debounceTimeout)
-    debounceTimeout = setTimeout(() => search(term), debounceMs)
+    debounceTimeout = setTimeout(() => search(term, filters), debounceMs)
   }
 
   const loadMore = async () => {
@@ -86,6 +106,14 @@ export function useSearch(options: UseSearchOptions = {}) {
     total.value = 0
     hasSearched.value = false
     scrollId.value = null
+    activeFilters.value = {}
+  }
+
+  const clearFilters = () => {
+    activeFilters.value = {}
+    if (searchTerm.value.trim()) {
+      search(searchTerm.value)
+    }
   }
 
   return {
@@ -96,9 +124,12 @@ export function useSearch(options: UseSearchOptions = {}) {
     error,
     total,
     hasSearched,
+    activeFilters,
+    activeFilterCount,
     search,
     debouncedSearch,
     loadMore,
-    clear
+    clear,
+    clearFilters,
   }
 }
