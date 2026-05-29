@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, FileText, Home, Upload, Sun, Moon, Keyboard, Trash2, Shield } from 'lucide-vue-next'
+import { Search, FileText, Home, Upload, Sun, Moon, Keyboard, Trash2, Shield, Loader2 } from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 import { useDocumentStore } from '@/stores/documents'
+import { useSearch } from '@/composables/useSearch'
+import HighlightedText from '@/components/documents/HighlightedText.vue'
+import { api } from '@/api/client'
+import { formatDate } from '@/lib/format'
+import { extractCompanyFromText } from '@/lib/documentMetadata'
+import type { Document } from '@/types/documents'
 
 interface Action {
   id: string
@@ -22,6 +28,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'show-shortcuts': []
+  'select-document': [doc: Document]
 }>()
 
 const router = useRouter()
@@ -31,6 +38,15 @@ const store = useDocumentStore()
 const query = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
 const selected = ref(0)
+
+// Document search
+const {
+  results: searchResults,
+  loading: searchLoading,
+  hasSearched,
+  debouncedSearch,
+  clear: clearSearch
+} = useSearch({ debounceMs: 200, pageSize: 5 })
 
 const actions = computed<Action[]>(() => [
   {
@@ -107,6 +123,25 @@ const filtered = computed<Action[]>(() => {
   )
 })
 
+const docResults = computed(() => searchResults.value.slice(0, 5))
+const totalItems = computed(() => filtered.value.length + docResults.value.length)
+
+// Trigger document search as user types
+watch(query, (q) => {
+  if (q.trim()) {
+    debouncedSearch(q)
+  } else {
+    clearSearch()
+  }
+})
+
+// Keep selected in bounds when result count changes
+watch(docResults, () => {
+  if (selected.value >= totalItems.value) {
+    selected.value = Math.max(0, totalItems.value - 1)
+  }
+})
+
 watch(
   () => props.open,
   (open) => {
@@ -114,6 +149,8 @@ watch(
       query.value = ''
       selected.value = 0
       nextTick(() => inputRef.value?.focus())
+    } else {
+      clearSearch()
     }
   }
 )
@@ -129,25 +166,47 @@ const run = (a: Action) => {
   close()
 }
 
+const openDocument = (doc: Document) => {
+  emit('select-document', doc)
+  close()
+}
+
 const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    selected.value = Math.min(selected.value + 1, filtered.value.length - 1)
+    selected.value = Math.min(selected.value + 1, totalItems.value - 1)
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     selected.value = Math.max(selected.value - 1, 0)
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    const a = filtered.value[selected.value]
-    if (a) run(a)
-    else if (query.value.trim()) {
-      router.push({ path: '/', query: { q: query.value.trim() } })
-      close()
+    if (selected.value < filtered.value.length) {
+      const a = filtered.value[selected.value]
+      if (a) run(a)
+      else if (query.value.trim()) {
+        router.push({ path: '/', query: { q: query.value.trim() } })
+        close()
+      }
+    } else {
+      const docIndex = selected.value - filtered.value.length
+      const doc = docResults.value[docIndex]
+      if (doc) openDocument(doc)
     }
   } else if (e.key === 'Escape') {
     e.preventDefault()
     close()
   }
+}
+
+const thumbnailUrl = (id: string) => api.thumbnailUrl(id)
+
+const getCompanyName = (doc: Document): string =>
+  doc._source.company?.name || extractCompanyFromText(doc._source.text || '')
+
+const getSnippet = (doc: Document): string => {
+  if (doc.highlight?.text?.[0]) return doc.highlight.text[0]
+  const text = doc._source.text || ''
+  return text.length > 150 ? text.slice(0, 150) + '…' : text
 }
 </script>
 
@@ -184,6 +243,7 @@ const onKeydown = (e: KeyboardEvent) => {
             </kbd>
           </div>
           <ul class="max-h-[50vh] overflow-auto p-2" role="listbox">
+            <!-- Actions -->
             <li
               v-for="(a, i) in filtered"
               :key="a.id"
@@ -202,8 +262,72 @@ const onKeydown = (e: KeyboardEvent) => {
                 {{ a.hint }}
               </kbd>
             </li>
-            <li v-if="filtered.length === 0" class="px-3 py-6 text-center text-sm text-muted-foreground">
-              No matches. Press Enter to search for "{{ query }}".
+
+            <!-- Documents section -->
+            <template v-if="query.trim()">
+              <li
+                class="mx-1 mt-1 flex items-center gap-2 border-t px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground"
+                role="separator"
+              >
+                <FileText class="h-3 w-3" aria-hidden="true" />
+                Documents
+              </li>
+
+              <li
+                v-for="(doc, di) in docResults"
+                :key="doc._id"
+                :aria-selected="filtered.length + di === selected"
+                :class="[
+                  'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm',
+                  filtered.length + di === selected ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                ]"
+                role="option"
+                @mouseenter="selected = filtered.length + di"
+                @click="openDocument(doc)"
+              >
+                <div class="h-10 w-8 shrink-0 overflow-hidden rounded bg-muted">
+                  <img
+                    :src="thumbnailUrl(doc._id)"
+                    :alt="doc._source.title || 'Document thumbnail'"
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm">
+                    <HighlightedText :text="getSnippet(doc)" />
+                  </div>
+                  <div
+                    v-if="getCompanyName(doc) || doc._source.date"
+                    class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"
+                  >
+                    <span v-if="getCompanyName(doc)" class="max-w-[140px] truncate">{{ getCompanyName(doc) }}</span>
+                    <span v-if="getCompanyName(doc) && doc._source.date" aria-hidden="true">&middot;</span>
+                    <span v-if="doc._source.date" class="shrink-0">{{ formatDate(doc._source.date) }}</span>
+                  </div>
+                </div>
+              </li>
+
+              <li v-if="searchLoading" class="flex items-center gap-3 px-3 py-3 text-sm text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin" aria-hidden="true" />
+                <span>Searching…</span>
+              </li>
+
+              <li
+                v-else-if="hasSearched && docResults.length === 0"
+                class="px-3 py-4 text-center text-sm text-muted-foreground"
+              >
+                No documents found
+              </li>
+            </template>
+
+            <!-- Empty state when no query and no actions -->
+            <li
+              v-if="filtered.length === 0 && !query.trim()"
+              class="px-3 py-6 text-center text-sm text-muted-foreground"
+            >
+              Type a command or search term…
             </li>
           </ul>
         </div>

@@ -7,15 +7,24 @@ import NetworkBanner from '@/components/layout/NetworkBanner.vue'
 import ShortcutsDialog from '@/components/layout/ShortcutsDialog.vue'
 import CommandPalette from '@/components/layout/CommandPalette.vue'
 import GlobalDropOverlay from '@/components/layout/GlobalDropOverlay.vue'
+import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useTheme } from '@/composables/useTheme'
+import type { Document } from '@/types/documents'
 
 const router = useRouter()
 const showShortcuts = ref(false)
 const showPalette = ref(false)
+const selectedDocument = ref<Document | null>(null)
+const sheetOpen = ref(false)
 
 // Activate theme on mount
 useTheme()
+
+const handleSelectDocument = (doc: Document) => {
+  selectedDocument.value = doc
+  sheetOpen.value = true
+}
 
 let goBuffer: string | null = null
 let goTimer: ReturnType<typeof setTimeout> | null = null
@@ -139,7 +148,9 @@ watch(
       :open="showPalette"
       @update:open="showPalette = $event"
       @show-shortcuts="() => { showPalette = false; showShortcuts = true }"
+      @select-document="handleSelectDocument"
     />
+    <DocumentDetailSheet v-model:open="sheetOpen" :document="selectedDocument" />
     <ShortcutsDialog :open="showShortcuts" @update:open="showShortcuts = $event" />
     <GlobalDropOverlay />
   </div>
