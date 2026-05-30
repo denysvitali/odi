@@ -556,3 +556,200 @@ func TestSearch_OpenSearchError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
+
+// ---------------------------------------------------------------------------
+// Search with title filter
+// ---------------------------------------------------------------------------
+
+func TestSearch_TitleFilter(t *testing.T) {
+	var capturedBody map[string]any
+
+	ms := searchTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedBody = decodeSearchBody(t, r)
+		resp := osSearchResponse([]map[string]any{
+			{"_id": "doc-1", "_source": map[string]any{"title": "Invoice 2024", "text": "test"}},
+		}, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	payload := `{"searchTerm":"test","size":10,"title":"Invoice 2024"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/search", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	ms.router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	query, ok := capturedBody["query"].(map[string]any)
+	require.True(t, ok)
+	boolQ, ok := query["bool"].(map[string]any)
+	require.True(t, ok, "title filter must produce a bool query")
+	filters, ok := boolQ["filter"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, filters)
+
+	filterJSON, _ := json.Marshal(filters)
+	assert.Contains(t, string(filterJSON), "Invoice 2024")
+}
+
+// ---------------------------------------------------------------------------
+// Facets endpoint with applied filters
+// ---------------------------------------------------------------------------
+
+func TestSearchFacets_WithFilters(t *testing.T) {
+	var capturedBody map[string]any
+
+	osResponse := map[string]any{
+		"hits": map[string]any{"hits": []map[string]any{}, "total": map[string]any{"value": 0, "relation": "eq"}},
+		"aggregations": map[string]any{
+			"companies":      map[string]any{"buckets": []map[string]any{{"key": "SBB", "doc_count": 2}}},
+			"date_histogram": map[string]any{"buckets": []map[string]any{}},
+			"barcode_count":  map[string]any{"doc_count": 1},
+		},
+	}
+
+	ms := searchTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		capturedBody = decodeSearchBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(osResponse)
+	})
+
+	payload := `{"searchTerm":"ticket","companies":["SBB"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/search/facets", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	ms.router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Verify size=0 (aggregations only)
+	assert.Equal(t, float64(0), capturedBody["size"])
+
+	// Verify aggs are present
+	_, hasAggs := capturedBody["aggs"]
+	assert.True(t, hasAggs)
+
+	// Verify filters are applied to the query (company filter)
+	query, ok := capturedBody["query"].(map[string]any)
+	require.True(t, ok)
+	boolQ, ok := query["bool"].(map[string]any)
+	require.True(t, ok, "facets with filters should produce a bool query")
+	filters, ok := boolQ["filter"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, filters)
+
+	filterJSON, _ := json.Marshal(filters)
+	assert.Contains(t, string(filterJSON), "SBB")
+}
+
+// ---------------------------------------------------------------------------
+// Facets endpoint: invalid JSON returns 400
+// ---------------------------------------------------------------------------
+
+func TestSearchFacets_InvalidJSON(t *testing.T) {
+	ms := searchTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("OpenSearch should not be called for invalid JSON")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/search/facets", strings.NewReader("{bad"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	ms.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// buildSearchFilters: unit tests
+// ---------------------------------------------------------------------------
+
+func TestBuildSearchFilters_NoFilters(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{})
+	assert.Nil(t, filters, "no filters should return nil")
+}
+
+func TestBuildSearchFilters_CompaniesOnly(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{
+		Companies: []string{"Swisscom", "SBB"},
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "Swisscom")
+	assert.Contains(t, string(filterJSON), "SBB")
+	assert.Contains(t, string(filterJSON), "company.name.keyword")
+}
+
+func TestBuildSearchFilters_DateFromOnly(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{
+		DateFrom: "2024-01-01",
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "date")
+	assert.Contains(t, string(filterJSON), "2024-01-01")
+	assert.Contains(t, string(filterJSON), "gte")
+	assert.NotContains(t, string(filterJSON), "lte")
+}
+
+func TestBuildSearchFilters_DateToOnly(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{
+		DateTo: "2024-12-31",
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "date")
+	assert.Contains(t, string(filterJSON), "2024-12-31")
+	assert.Contains(t, string(filterJSON), "lte")
+	assert.NotContains(t, string(filterJSON), "gte")
+}
+
+func TestBuildSearchFilters_BothDates(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{
+		DateFrom: "2024-01-01",
+		DateTo:   "2024-12-31",
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "gte")
+	assert.Contains(t, string(filterJSON), "lte")
+}
+
+func TestBuildSearchFilters_HasBarcode(t *testing.T) {
+	hasBarcode := true
+	filters := buildSearchFilters(SearchRequest{
+		HasBarcode: &hasBarcode,
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "barcode")
+	assert.Contains(t, string(filterJSON), "exists")
+}
+
+func TestBuildSearchFilters_Title(t *testing.T) {
+	filters := buildSearchFilters(SearchRequest{
+		Title: "Invoice",
+	})
+	require.Len(t, filters, 1)
+
+	filterJSON, _ := json.Marshal(filters[0])
+	assert.Contains(t, string(filterJSON), "Invoice")
+	assert.Contains(t, string(filterJSON), "title")
+}
+
+func TestBuildSearchFilters_AllCombined(t *testing.T) {
+	hasBarcode := true
+	filters := buildSearchFilters(SearchRequest{
+		Companies:  []string{"Swisscom"},
+		DateFrom:   "2024-01-01",
+		DateTo:     "2024-06-30",
+		HasBarcode: &hasBarcode,
+		Title:      "Invoice",
+	})
+	assert.Len(t, filters, 4, "all filters combined should produce 4 clauses: company, date, barcode, title")
+}
