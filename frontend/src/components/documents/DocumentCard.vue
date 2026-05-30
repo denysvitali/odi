@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import HighlightedText from './HighlightedText.vue'
+import DocTypeBadge from './DocTypeBadge.vue'
 import { api } from '@/api/client'
 import { useFavorites } from '@/composables/useFavorites'
 import { useTags } from '@/composables/useTags'
@@ -53,6 +54,7 @@ const companyName = computed(() => {
 const cardTitle = computed(() => props.document._source.title || extractedTitle.value)
 const tags = computed(() => getTags(props.document._id))
 const starred = computed(() => isFavorite(props.document._id))
+const docType = computed(() => props.document._source.docType || '')
 
 const formatDocId = (id: string) => {
   const match = id.match(/^(\d{4}-\d{2})/)
@@ -180,11 +182,12 @@ const onToggleStar = (e: MouseEvent) => {
         </Tooltip>
       </div>
 
-      <div class="absolute bottom-3 left-3">
+      <div class="absolute bottom-3 left-3 flex flex-wrap items-center gap-1.5">
         <Badge v-if="companyName" variant="secondary" class="glass text-xs">
           <Building2 class="mr-1 h-3 w-3" aria-hidden="true" />
           {{ companyName }}
         </Badge>
+        <DocTypeBadge v-if="docType" :doc-type="docType" class="text-xs" />
       </div>
     </div>
 

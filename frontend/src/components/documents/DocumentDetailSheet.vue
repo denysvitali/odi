@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Calendar, Building2, FileText, QrCode, AlertCircle, ExternalLink, Star, Tag as TagIcon, Plus, X, Download } from 'lucide-vue-next'
+import { Calendar, Building2, FileText, QrCode, AlertCircle, ExternalLink, Star, Tag as TagIcon, Plus, X, Download, Share2 } from 'lucide-vue-next'
 import {
   Sheet,
   SheetContent,
@@ -19,6 +19,8 @@ import DocumentCompanyCard from './DocumentCompanyCard.vue'
 import DocumentBarcodeCard from './DocumentBarcodeCard.vue'
 import DocumentTextContent from './DocumentTextContent.vue'
 import DocumentDetailSkeleton from './DocumentDetailSkeleton.vue'
+import DocumentSummaryPanel from './DocumentSummaryPanel.vue'
+import ShareDialog from './ShareDialog.vue'
 import { extractCompanyFromText, extractTitleFromText } from '@/lib/documentMetadata'
 import { useDocumentDetails } from '@/composables/useDocumentDetails'
 import { useFavorites } from '@/composables/useFavorites'
@@ -44,6 +46,7 @@ const { getTags, addTag, removeTag } = useTags()
 
 const newTag = ref('')
 const findText = ref('')
+const shareOpen = ref(false)
 
 const thumbnailUrl = computed(() => (props.document ? api.thumbnailUrl(props.document._id) : ''))
 const fullImageUrl = computed(() => (props.document ? api.fileUrl(props.document._id) : ''))
@@ -127,6 +130,15 @@ const onAddTag = (e: Event) => {
             >
               <Download class="h-4 w-4" />
             </Button>
+            <Button
+              v-if="docId"
+              variant="ghost"
+              size="icon"
+              aria-label="Share document"
+              @click="shareOpen = true"
+            >
+              <Share2 class="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <SheetDescription v-if="document" class="truncate font-mono text-xs">
@@ -178,6 +190,8 @@ const onAddTag = (e: Event) => {
               </Button>
                 </div>
               </div>
+
+              <DocumentSummaryPanel v-if="docId" :document-id="docId" />
 
               <DocumentDetailSection v-if="documentTitle" title="Subject" :icon="FileText">
                 <p class="text-sm text-foreground">{{ documentTitle }}</p>
@@ -313,4 +327,6 @@ const onAddTag = (e: Event) => {
       </ScrollArea>
     </SheetContent>
   </Sheet>
+
+  <ShareDialog v-if="docId" :doc-id="docId" :open="shareOpen" @update:open="(v) => (shareOpen = v)" />
 </template>

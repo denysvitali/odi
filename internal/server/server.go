@@ -264,7 +264,7 @@ func (s *Server) initRoutes() {
 	}))
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: false,
 	}))
@@ -272,6 +272,7 @@ func (s *Server) initRoutes() {
 	s.e.GET("/healthz", s.handleHealthz)
 	s.e.GET("/readyz", s.handleReadyz)
 	s.e.GET("/metrics", metricsHandler())
+	s.e.GET("/share/:token", s.handleServeShare)
 
 	g := s.e.Group("/api/v1")
 	if s.apiToken == "" {
@@ -289,6 +290,11 @@ func (s *Server) initRoutes() {
 	g.POST("/admin/reindex", s.handleStartReindex)
 	g.GET("/admin/reindex", s.handleGetReindexStatus)
 	g.POST("/upload", s.handleUpload)
+	g.POST("/chat", s.handleChat)
+	g.POST("/documents/:id/summary", s.handleDocumentSummary)
+	g.POST("/shares", s.handleCreateShare)
+	g.GET("/shares", s.handleListShares)
+	g.DELETE("/shares/:token", s.handleRevokeShare)
 }
 
 func (s *Server) pingOs(ctx context.Context) error {

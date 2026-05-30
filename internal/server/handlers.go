@@ -28,6 +28,8 @@ type SearchRequest struct {
 	DateTo     string   `json:"dateTo,omitempty"`
 	HasBarcode *bool    `json:"hasBarcode,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	DocTypes   []string `json:"docTypes,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 func (s *Server) handleSearch(c *gin.Context) {
@@ -157,6 +159,8 @@ func buildSearchFilters(req SearchRequest) []map[string]any {
 		})
 	}
 
+	filters = append(filters, buildDocTypeTagFilters(req.DocTypes, req.Tags)...)
+
 	return filters
 }
 
@@ -169,6 +173,8 @@ type SearchFacetsRequest struct {
 	DateTo     string   `json:"dateTo,omitempty"`
 	HasBarcode *bool    `json:"hasBarcode,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	DocTypes   []string `json:"docTypes,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 func (s *Server) handleSearchFacets(c *gin.Context) {
@@ -192,6 +198,8 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		DateTo:     req.DateTo,
 		HasBarcode: req.HasBarcode,
 		Title:      req.Title,
+		DocTypes:   req.DocTypes,
+		Tags:       req.Tags,
 	})
 
 	query := queryString
@@ -204,30 +212,35 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		}
 	}
 
-	searchContent := map[string]any{
-		"size":  0,
-		"query": query,
-		"aggs": map[string]any{
-			"companies": map[string]any{
-				"terms": map[string]any{
-					"field": "company.name.keyword",
-					"size":  20,
-				},
+	aggs := map[string]any{
+		"companies": map[string]any{
+			"terms": map[string]any{
+				"field": "company.name.keyword",
+				"size":  20,
 			},
+		},
+		"date_histogram": map[string]any{
 			"date_histogram": map[string]any{
-				"date_histogram": map[string]any{
-					"field":             "date",
-					"calendar_interval": "month",
-				},
+				"field":             "date",
+				"calendar_interval": "month",
 			},
-			"barcode_count": map[string]any{
-				"filter": map[string]any{
-					"exists": map[string]any{
-						"field": "barcode",
-					},
+		},
+		"barcode_count": map[string]any{
+			"filter": map[string]any{
+				"exists": map[string]any{
+					"field": "barcode",
 				},
 			},
 		},
+	}
+	for k, v := range docTypeTagAggs() {
+		aggs[k] = v
+	}
+
+	searchContent := map[string]any{
+		"size":  0,
+		"query": query,
+		"aggs":  aggs,
 	}
 
 	jsonBody, marshalErr := json.Marshal(searchContent)

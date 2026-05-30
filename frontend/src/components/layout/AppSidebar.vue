@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { Home, FileText, Upload, Star, Keyboard, Command, Shield } from 'lucide-vue-next'
+import { Home, FileText, Upload, Star, Keyboard, Command, Shield, MessageSquare, Share2 } from 'lucide-vue-next'
 import { useFavorites } from '@/composables/useFavorites'
 
 const router = useRouter()
@@ -15,6 +15,8 @@ const navItems = [
   { name: 'Home', path: '/', icon: Home },
   { name: 'Documents', path: '/documents', icon: FileText },
   { name: 'Favorites', path: '/favorites', icon: Star },
+  { name: 'Chat', path: '/chat', icon: MessageSquare },
+  { name: 'Shares', path: '/shares', icon: Share2 },
   { name: 'Upload', path: '/upload', icon: Upload },
   { name: 'Admin', path: '/admin', icon: Shield }
 ]

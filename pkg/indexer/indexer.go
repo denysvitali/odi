@@ -200,6 +200,7 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 
 	// LLM-based metadata extraction (best-effort, non-blocking)
 	var llmMeta llm.Metadata
+	var llmClass llm.Classification
 	if i.llmClient != nil {
 		meta, err := i.llmClient.ExtractMetadata(ctx, documentText)
 		if err != nil {
@@ -207,6 +208,16 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 		} else {
 			llmMeta = meta
 			log.Debugf("LLM extracted title=%q company=%q", llmMeta.Title, llmMeta.Company)
+		}
+
+		// Best-effort document-type classification + tags. Summary is generated
+		// on-demand (lazy), not during indexing.
+		class, err := i.llmClient.Classify(ctx, documentText)
+		if err != nil {
+			log.WithError(err).Debug("LLM classification failed, continuing without it")
+		} else {
+			llmClass = class
+			log.Debugf("LLM classified docType=%q tags=%v", llmClass.DocType, llmClass.Tags)
 		}
 	}
 
@@ -248,6 +259,12 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 	if llmMeta.Company != "" && d.Company == nil {
 		// Use LLM-extracted company only when Zefix didn't find anything.
 		d.Company = &zefixtypes.Company{Name: llmMeta.Company}
+	}
+	if llmClass.DocType != "" {
+		d.DocType = llmClass.DocType
+	}
+	if len(llmClass.Tags) > 0 {
+		d.Tags = llmClass.Tags
 	}
 	err = enc.Encode(d)
 	if err != nil {

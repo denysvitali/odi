@@ -9,6 +9,8 @@ export interface SearchFilters {
   dateTo?: string
   hasBarcode?: boolean
   titleFilter?: string
+  docTypes?: string[]
+  tags?: string[]
 }
 
 export interface FacetBucket {
@@ -21,6 +23,50 @@ export interface FacetData {
   dateHistogram: FacetBucket[]
   barcodeCount: number
   totalHits: number
+  docTypes?: FacetBucket[]
+  tags?: FacetBucket[]
+}
+
+export interface ChatRequest {
+  question: string
+  filters?: SearchFilters
+}
+
+export interface ChatResponse {
+  answer: string
+  citations: string[]
+}
+
+export interface KeyFact {
+  label: string
+  value: string
+}
+
+export interface DocumentSummaryResult {
+  summary: string
+  keyFacts: KeyFact[]
+}
+
+export interface CreateShareOptions {
+  scanID: string
+  sequenceID: number
+  expiresInHours?: number
+  maxViews?: number
+  passphrase?: string
+}
+
+export interface CreateShareResult {
+  token: string
+}
+
+export interface Share {
+  token: string
+  scanID: string
+  sequenceID: number
+  expiresAt: number
+  maxViews: number
+  viewCount: number
+  hasPassphrase: boolean
 }
 
 export interface ReindexPageError {
@@ -140,6 +186,8 @@ export const api = {
       if (params.filters.dateTo) body.dateTo = params.filters.dateTo
       if (params.filters.hasBarcode !== undefined) body.hasBarcode = params.filters.hasBarcode
       if (params.filters.titleFilter) body.title = params.filters.titleFilter
+      if (params.filters.docTypes?.length) body.docTypes = params.filters.docTypes
+      if (params.filters.tags?.length) body.tags = params.filters.tags
     }
     return request('/search', {
       method: 'POST',
@@ -159,6 +207,8 @@ export const api = {
       if (params.filters.dateTo) body.dateTo = params.filters.dateTo
       if (params.filters.hasBarcode !== undefined) body.hasBarcode = params.filters.hasBarcode
       if (params.filters.titleFilter) body.title = params.filters.titleFilter
+      if (params.filters.docTypes?.length) body.docTypes = params.filters.docTypes
+      if (params.filters.tags?.length) body.tags = params.filters.tags
     }
     return request('/search/facets', {
       method: 'POST',
@@ -210,5 +260,56 @@ export const api = {
 
   startReindex(): Promise<ReindexStatus> {
     return request('/admin/reindex', { method: 'POST' })
+  },
+
+  chat(params: ChatRequest): Promise<ChatResponse> {
+    const body: Record<string, unknown> = { question: params.question }
+    if (params.filters) {
+      const f = params.filters
+      if (f.companies?.length) body.companies = f.companies
+      if (f.dateFrom) body.dateFrom = f.dateFrom
+      if (f.dateTo) body.dateTo = f.dateTo
+      if (f.hasBarcode !== undefined) body.hasBarcode = f.hasBarcode
+      if (f.titleFilter) body.title = f.titleFilter
+      if (f.docTypes?.length) body.docTypes = f.docTypes
+      if (f.tags?.length) body.tags = f.tags
+    }
+    return request('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  },
+
+  summarizeDocument(id: string): Promise<DocumentSummaryResult> {
+    return request(`/documents/${encodeURIComponent(id)}/summary`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    })
+  },
+
+  createShare(opts: CreateShareOptions): Promise<CreateShareResult> {
+    return request('/shares', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts)
+    })
+  },
+
+  listShares(): Promise<Share[]> {
+    return request('/shares')
+  },
+
+  revokeShare(token: string): Promise<void> {
+    return request(`/shares/${encodeURIComponent(token)}`, { method: 'DELETE' })
+  },
+
+  // The public, unauthenticated share page lives at the server root (NOT under
+  // /api/v1). Derive the server origin by stripping the API path segment from
+  // getApiUrl(), then append /share/<token>.
+  shareUrl(token: string): string {
+    const apiUrl = getApiUrl()
+    const root = apiUrl.replace(/\/api\/v\d+\/?$/, '').replace(/\/$/, '')
+    return `${root}/share/${encodeURIComponent(token)}`
   }
 }

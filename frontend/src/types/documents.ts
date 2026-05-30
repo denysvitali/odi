@@ -35,12 +35,21 @@ export interface Barcode {
   qrBill?: QRBillData
 }
 
+export interface KeyFact {
+  label: string
+  value: string
+}
+
 export interface InnerDocument {
   title?: string
   text: string
   company?: Company
   date?: string
   indexedAt?: string
+  docType?: string
+  tags?: string[]
+  summary?: string
+  keyFacts?: KeyFact[]
 }
 
 export interface Highlight {
@@ -77,4 +86,8 @@ export interface DocumentDetails {
   text?: string
   company?: Company
   barcodes?: Barcode[]
+  docType?: string
+  tags?: string[]
+  summary?: string
+  keyFacts?: KeyFact[]
 }

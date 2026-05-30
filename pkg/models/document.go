@@ -17,8 +17,20 @@ type Document struct {
 	Dates              []time.Time     `json:"dates,omitempty"`
 	IndexedAt          time.Time       `json:"indexedAt,omitempty"`
 
+	// AI-derived fields
+	DocType  string    `json:"docType,omitempty"`
+	Tags     []string  `json:"tags,omitempty"`
+	Summary  string    `json:"summary,omitempty"`
+	KeyFacts []KeyFact `json:"keyFacts,omitempty"`
+
 	// Scan specific fields
 	ScanID        string `json:"scanID"`
 	SequenceID    int    `json:"sequenceID"`
 	ContentDigest string `json:"contentDigest,omitempty"`
+}
+
+// KeyFact is a single extracted label/value pair (e.g. amount due, due date, IBAN).
+type KeyFact struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }

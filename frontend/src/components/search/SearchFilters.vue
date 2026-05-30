@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import DocTypeFacet from './DocTypeFacet.vue'
+import TagFacet from './TagFacet.vue'
 import type { SearchFilters as SearchFiltersType, FacetData } from '@/api/client'
 
 interface Props {
@@ -82,6 +84,38 @@ const toggleCompany = (company: string) => {
 }
 
 const isCompanySelected = (company: string) => selectedCompanies.value.includes(company)
+
+// Document type filter
+const selectedDocTypes = ref<string[]>(props.filters.docTypes || [])
+
+watch(
+  () => props.filters.docTypes,
+  (docTypes) => {
+    selectedDocTypes.value = docTypes || []
+  },
+  { deep: true }
+)
+
+const updateDocTypes = (keys: string[]) => {
+  selectedDocTypes.value = keys
+  emitFilters()
+}
+
+// Tag filter
+const selectedTags = ref<string[]>(props.filters.tags || [])
+
+watch(
+  () => props.filters.tags,
+  (tags) => {
+    selectedTags.value = tags || []
+  },
+  { deep: true }
+)
+
+const updateTags = (keys: string[]) => {
+  selectedTags.value = keys
+  emitFilters()
+}
 
 // Date range filter
 const dateFrom = ref(props.filters.dateFrom || '')
@@ -163,6 +197,12 @@ const emitFilters = () => {
   if (titleFilter.value.trim()) {
     filters.titleFilter = titleFilter.value.trim()
   }
+  if (selectedDocTypes.value.length > 0) {
+    filters.docTypes = [...selectedDocTypes.value]
+  }
+  if (selectedTags.value.length > 0) {
+    filters.tags = [...selectedTags.value]
+  }
 
   emit('update:filters', filters)
 }
@@ -173,6 +213,8 @@ const clearAll = () => {
   dateTo.value = ''
   hasBarcode.value = undefined
   titleFilter.value = ''
+  selectedDocTypes.value = []
+  selectedTags.value = []
   emit('clear')
 }
 
@@ -187,6 +229,8 @@ const toggleMobile = () => {
 const hasCompanies = computed(() => props.facets.companies.length > 0)
 const hasDateData = computed(() => props.facets.dateHistogram.length > 0)
 const hasBarcodeData = computed(() => props.facets.barcodeCount > 0)
+const hasDocTypes = computed(() => (props.facets.docTypes?.length ?? 0) > 0)
+const hasTags = computed(() => (props.facets.tags?.length ?? 0) > 0)
 
 const barcodeLabel = computed(() => {
   if (hasBarcode.value === true) return 'With barcode'
@@ -390,6 +434,22 @@ const totalWithoutBarcode = computed(() => props.facets.totalHits - props.facets
                 />
               </div>
             </div>
+
+            <Separator v-if="hasDocTypes" />
+            <DocTypeFacet
+              v-if="hasDocTypes"
+              :buckets="facets.docTypes ?? []"
+              :selected="selectedDocTypes"
+              @update="updateDocTypes"
+            />
+
+            <Separator v-if="hasTags" />
+            <TagFacet
+              v-if="hasTags"
+              :buckets="facets.tags ?? []"
+              :selected="selectedTags"
+              @update="updateTags"
+            />
           </div>
         </ScrollArea>
 
@@ -580,6 +640,22 @@ const totalWithoutBarcode = computed(() => props.facets.totalHits - props.facets
             />
           </div>
         </div>
+
+        <Separator v-if="hasDocTypes" />
+        <DocTypeFacet
+          v-if="hasDocTypes"
+          :buckets="facets.docTypes ?? []"
+          :selected="selectedDocTypes"
+          @update="updateDocTypes"
+        />
+
+        <Separator v-if="hasTags" />
+        <TagFacet
+          v-if="hasTags"
+          :buckets="facets.tags ?? []"
+          :selected="selectedTags"
+          @update="updateTags"
+        />
       </div>
 
       <!-- Loading indicator -->

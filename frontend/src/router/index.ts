@@ -35,6 +35,18 @@ const router = createRouter({
       meta: { title: 'Upload' }
     },
     {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('@/views/ChatView.vue'),
+      meta: { title: 'Chat' }
+    },
+    {
+      path: '/shares',
+      name: 'shares',
+      component: () => import('@/views/SharesView.vue'),
+      meta: { title: 'Shares' }
+    },
+    {
       path: '/admin',
       name: 'admin',
       component: () => import('@/views/AdminView.vue'),
