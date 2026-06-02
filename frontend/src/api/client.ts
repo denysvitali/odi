@@ -1,7 +1,7 @@
 import { getApiUrl } from '@/lib/config'
 import { STORAGE_KEYS } from '@/lib/constants'
 import { logger } from '@/lib/logger'
-import type { Document, DocumentDetails, SearchResult } from '@/types/documents'
+import type { Document, DocumentDetails, Reminder, SearchResult } from '@/types/documents'
 
 export interface SearchFilters {
   companies?: string[]
@@ -72,6 +72,11 @@ export interface Share {
 export interface ReindexPageError {
   page: string
   error: string
+}
+
+export interface RemindersResult {
+  reminders: Reminder[]
+  days: number
 }
 
 export interface ReindexStatus {
@@ -252,6 +257,15 @@ export const api = {
 
   fileUrl(id: string): string {
     return `${getApiUrl()}/files/${encodeURIComponent(id).replace(/_/g, '/')}`
+  },
+
+  // getReminders fetches the upcoming-deadlines list. The optional window (in
+  // days) is only sent when provided so the backend applies its own default.
+  getReminders(days?: number): Promise<RemindersResult> {
+    const qs = new URLSearchParams()
+    if (days !== undefined) qs.set('days', String(days))
+    const query = qs.toString()
+    return request(`/reminders${query ? `?${query}` : ''}`)
   },
 
   getReindexStatus(): Promise<ReindexStatus> {

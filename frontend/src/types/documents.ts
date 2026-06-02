@@ -77,6 +77,17 @@ export interface Document {
   highlight?: Highlight
 }
 
+// Reminder mirrors the backend `Reminder` projection (internal/server/reminders.go):
+// a single upcoming deadline derived from a document's dates / KeyFacts.
+export interface Reminder {
+  id: string
+  title: string
+  dueDate: string
+  docType?: string
+  company?: string
+  amountDue?: string
+}
+
 export interface DocumentDetails {
   title?: string
   id: string
