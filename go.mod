@@ -10,6 +10,7 @@ require (
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
 	github.com/denysvitali/sparql-client v0.0.0-20240111232713-5d0abd46fd48
 	github.com/disintegration/imaging v1.6.2
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
@@ -27,6 +28,7 @@ require (
 	github.com/stapelberg/airscan v0.0.0-20230413182642-6d2d07701710
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.52.0
+	golang.org/x/sync v0.20.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
@@ -56,7 +58,6 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-chi/chi/v5 v5.2.5 // indirect
@@ -131,7 +132,6 @@ require (
 	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
