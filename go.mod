@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/alexflint/go-arg v1.6.1
-	github.com/cenkalti/backoff/v5 v5.0.3
+	github.com/cenkalti/backoff/v7 v7.0.0
 	github.com/denysvitali/go-datesfinder v0.0.1
 	github.com/denysvitali/go-swiss-qr-bill v0.0.0-20230326211735-9c02af35b762
 	github.com/denysvitali/sparql-client v0.0.0-20240111232713-5d0abd46fd48
