@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.24
+# syntax=docker/dockerfile:1.27
 
 FROM golang:1.26-alpine AS builder
 ENV CGO_ENABLED=0 \
