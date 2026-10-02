@@ -3,8 +3,10 @@ package ingestor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -99,52 +101,61 @@ func (i *Ingestor) ScanPages(ctx context.Context, scanner DocumentsScanner, work
 
 	scanID := uuid.NewString()
 	seq := 0
-	for scanner.ScanPage() {
+	var scanErr error
+scanLoop:
+	for {
+		if err := ctx.Err(); err != nil {
+			scanErr = err
+			break
+		}
+		if !scanner.ScanPage() {
+			scanErr = scanner.Err()
+			break
+		}
 		seq++
 		totalPages.Add(1)
-		// Bound the read with LimitReader+1 so we can distinguish "exactly
-		// at the limit" from "larger than the limit".
 		limit := MaxPageBytes
-		lr := io.LimitReader(scanner.CurrentPage(), limit+1)
-		b, err := io.ReadAll(lr)
+		reader := scanner.CurrentPage()
+		b, err := io.ReadAll(io.LimitReader(reader, limit+1))
+		if closer, ok := reader.(io.Closer); ok {
+			err = errors.Join(err, closer.Close())
+		}
 		if err != nil {
-			closeChan()
-			wg.Wait()
-			return fmt.Errorf("unable to read page %d of scan %s: %w", seq, scanID, err)
+			scanErr = fmt.Errorf("unable to read page %d of scan %s: %w", seq, scanID, err)
+			break
 		}
 		if int64(len(b)) > limit {
-			closeChan()
-			wg.Wait()
-			return fmt.Errorf("page %d of scan %s exceeds max page size of %d bytes", seq, scanID, limit)
+			scanErr = fmt.Errorf("page %d of scan %s exceeds max page size of %d bytes", seq, scanID, limit)
+			break
 		}
-		pageChan <- models.ScannedPage{
-			Reader:     bytes.NewReader(b),
-			ScanID:     scanID,
-			SequenceID: seq,
-			ScanTime:   time.Now(),
+		select {
+		case pageChan <- models.ScannedPage{
+			Reader: bytes.NewReader(b), ScanID: scanID, SequenceID: seq, ScanTime: time.Now(),
+		}:
+		case <-ctx.Done():
+			scanErr = ctx.Err()
+			break scanLoop
 		}
-		time.Sleep(PageScanDelay) // Slow down infinite loops
-	}
-
-	if err := scanner.Err(); err != nil {
-		closeChan()
-		wg.Wait()
-		return fmt.Errorf("scanner error for scan %s: %w", scanID, err)
+		timer := time.NewTimer(PageScanDelay)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			scanErr = ctx.Err()
+			break scanLoop
+		}
 	}
 
 	closeChan()
 	wg.Wait()
-
+	// Flush accepted pages even if the scanner failed partway through.
 	if err := i.backend.Flush(ctx); err != nil {
-		return fmt.Errorf("flush backend for scan %s: %w", scanID, err)
+		scanErr = errors.Join(scanErr, fmt.Errorf("flush backend for scan %s: %w", scanID, err))
 	}
-
-	failed := failedPages.Load()
-	total := totalPages.Load()
-	if failed > 0 {
-		log.Warnf("scan %s: %d of %d pages failed processing", scanID, failed, total)
+	if failed := failedPages.Load(); failed > 0 {
+		scanErr = errors.Join(scanErr, fmt.Errorf("scan %s: %d of %d pages failed processing", scanID, failed, totalPages.Load()))
 	}
-	return nil
+	return scanErr
 }
 
 func (i *Ingestor) ScanPagesWithDefaultWorkers(ctx context.Context, scanner DocumentsScanner) error {
@@ -153,8 +164,9 @@ func (i *Ingestor) ScanPagesWithDefaultWorkers(ctx context.Context, scanner Docu
 
 // Ingest connects to the named AirScan scanner and streams every scanned
 // page through the configured Backend.
-func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string) error {
+func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string) (err error) {
 	c := airscan.NewClient(scannerName)
+	c.HTTPClient = scannerHTTPClient{ctx: ctx}
 	settings := preset.GrayscaleA4ADF()
 	settings.Duplex = false
 	settings.ColorMode = "RGB24"
@@ -165,26 +177,51 @@ func (i *Ingestor) Ingest(ctx context.Context, scannerName string, source string
 	if err != nil {
 		return fmt.Errorf("unable to create scan job on scanner %q source %q: %w", scannerName, source, err)
 	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		// ScanPages has returned; no scanner request runs concurrently with this change.
+		c.HTTPClient = scannerHTTPClient{ctx: cleanupCtx}
+		if closeErr := job.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close scanner job: %w", closeErr))
+		}
+	}()
 	if err := i.ScanPages(ctx, job, DefaultWorkers); err != nil {
 		return fmt.Errorf("scan pages from scanner %q source %q: %w", scannerName, source, err)
 	}
 	return nil
 }
 
+// AirScan requests do not attach a context themselves. Bind the complete
+// HTTP operation (including response reads) to the ingestion lifetime.
+type scannerHTTPClient struct{ ctx context.Context }
+
+func (c scannerHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	//nolint:gosec // G704: CLI operator selects the LAN scanner host; AirScan constructs its requests. Private scanner access is intentional.
+	return http.DefaultClient.Do(req.WithContext(c.ctx))
+}
+
 func (i *Ingestor) processPage(ctx context.Context, pageChan <-chan models.ScannedPage, wg *sync.WaitGroup, failedPages *atomic.Int64) {
 	defer wg.Done()
-	defer func() {
-		if r := recover(); r != nil {
-			logrus.WithField("panic", r).Error("ingest worker panic")
-			failedPages.Add(1)
-		}
-	}()
 	for page := range pageChan {
-		if err := i.backend.ProcessPage(ctx, page); err != nil {
+		if err := processPageSafely(ctx, i.backend, page); err != nil {
 			log.Errorf("unable to process page scan=%s seq=%d: %v", page.ScanID, page.SequenceID, err)
 			failedPages.Add(1)
 		}
 	}
+}
+
+// Recover per page so a faulty page cannot remove all consumers and strand the producer.
+func processPageSafely(ctx context.Context, backend Backend, page models.ScannedPage) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = fmt.Errorf("ingest worker panic processing page %s", page.ID())
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return backend.ProcessPage(ctx, page)
 }
 
 // Ping checks the backend is reachable.

@@ -24,6 +24,8 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   const pageSize = ref(initialPageSize)
   const dateRange = ref<DateRange | null>(null)
 
+  let generation = 0
+
   const filteredDocuments = computed(() => documents.value)
 
   const filteredTotal = computed(() => total.value)
@@ -34,7 +36,8 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
   })
 
   const loadDocuments = async () => {
-    if (loading.value) return
+    const current = ++generation
+    loadingMore.value = false
     loading.value = true
     error.value = null
     try {
@@ -43,32 +46,37 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         dateFrom: dateRange.value?.from,
         dateTo: dateRange.value?.to
       })
+      if (current !== generation) return
+      documents.value = []
+      total.value = 0
+      scrollId.value = null
       if (data.hits) {
         documents.value = data.hits.hits
         total.value = data.hits.total?.value || 0
         scrollId.value = data._scroll_id || null
       }
     } catch (err) {
-      error.value = errorMessage(err, 'Failed to load documents')
+      if (current === generation) error.value = errorMessage(err, 'Failed to load documents')
     } finally {
-      loading.value = false
+      if (current === generation) loading.value = false
     }
   }
 
   const loadMore = async () => {
-    if (loadingMore.value || !scrollId.value) return
+    if (loading.value || loadingMore.value || !scrollId.value) return
+    const current = generation
     loadingMore.value = true
     try {
       const data = await api.listDocuments({ scrollId: scrollId.value, size: pageSize.value })
+      if (current !== generation) return
       if (data.hits?.hits) {
         documents.value.push(...data.hits.hits)
         scrollId.value = data._scroll_id || null
       }
     } catch (err) {
-      // Non-fatal; keep previous results
-      console.error('Error loading more documents:', err)
+      if (current === generation) error.value = errorMessage(err, 'Unable to load more documents')
     } finally {
-      loadingMore.value = false
+      if (current === generation) loadingMore.value = false
     }
   }
 

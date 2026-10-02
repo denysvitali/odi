@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, getCurrentScope, onScopeDispose } from 'vue'
 import { api } from '@/api/client'
 import { errorMessage } from '@/lib/utils'
 import type { Document } from '@/types/documents'
@@ -22,6 +22,7 @@ export function useSearch(options: UseSearchOptions = {}) {
   const hasSearched = ref(false)
   const activeFilters = ref<SearchFilters>({})
 
+  let generation = 0
   let debounceTimeout: ReturnType<typeof setTimeout> | null = null
 
   const activeFilterCount = computed(() => {
@@ -31,6 +32,8 @@ export function useSearch(options: UseSearchOptions = {}) {
     if (activeFilters.value.dateTo) count++
     if (activeFilters.value.hasBarcode !== undefined) count++
     if (activeFilters.value.titleFilter?.trim()) count++
+    count += activeFilters.value.docTypes?.length || 0
+    count += activeFilters.value.tags?.length || 0
     return count
   })
 
@@ -39,6 +42,9 @@ export function useSearch(options: UseSearchOptions = {}) {
       clearTimeout(debounceTimeout)
       debounceTimeout = null
     }
+    const current = ++generation
+    loadingMore.value = false
+    scrollId.value = null
     searchTerm.value = term
 
     if (filters !== undefined) {
@@ -49,6 +55,8 @@ export function useSearch(options: UseSearchOptions = {}) {
       results.value = []
       total.value = 0
       hasSearched.value = false
+      loading.value = false
+      error.value = null
       return
     }
 
@@ -60,8 +68,9 @@ export function useSearch(options: UseSearchOptions = {}) {
       const data = await api.search({
         searchTerm: term,
         size: pageSize,
-        filters: activeFilterCount.value > 0 ? activeFilters.value : undefined,
+        filters: activeFilterCount.value > 0 ? activeFilters.value : undefined
       })
+      if (current !== generation) return
       if (data.hits) {
         results.value = data.hits.hits
         total.value = data.hits.total?.value || 0
@@ -71,11 +80,12 @@ export function useSearch(options: UseSearchOptions = {}) {
         total.value = 0
       }
     } catch (err) {
+      if (current !== generation) return
       error.value = errorMessage(err, 'Search failed')
       results.value = []
       total.value = 0
     } finally {
-      loading.value = false
+      if (current === generation) loading.value = false
     }
   }
 
@@ -85,22 +95,30 @@ export function useSearch(options: UseSearchOptions = {}) {
   }
 
   const loadMore = async () => {
-    if (!scrollId.value || !searchTerm.value) return
+    if (!scrollId.value || loading.value || loadingMore.value) return
+    const current = generation
     loadingMore.value = true
     try {
       const data = await api.search({ scrollId: scrollId.value })
+      if (current !== generation) return
       if (data.hits?.hits) {
         results.value.push(...data.hits.hits)
         scrollId.value = data._scroll_id || null
       }
     } catch (err) {
-      console.error('Error loading more results:', err)
+      if (current === generation) error.value = errorMessage(err, 'Unable to load more results')
     } finally {
-      loadingMore.value = false
+      if (current === generation) loadingMore.value = false
     }
   }
 
   const clear = () => {
+    generation++
+    if (debounceTimeout) clearTimeout(debounceTimeout)
+    debounceTimeout = null
+    loading.value = false
+    loadingMore.value = false
+    error.value = null
     searchTerm.value = ''
     results.value = []
     total.value = 0
@@ -111,10 +129,10 @@ export function useSearch(options: UseSearchOptions = {}) {
 
   const clearFilters = () => {
     activeFilters.value = {}
-    if (searchTerm.value.trim()) {
-      search(searchTerm.value)
-    }
+    return search(searchTerm.value)
   }
+
+  if (getCurrentScope()) onScopeDispose(clear)
 
   return {
     searchTerm,
@@ -130,6 +148,6 @@ export function useSearch(options: UseSearchOptions = {}) {
     debouncedSearch,
     loadMore,
     clear,
-    clearFilters,
+    clearFilters
   }
 }

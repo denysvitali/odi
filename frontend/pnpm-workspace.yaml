@@ -3,3 +3,8 @@ packages:
 
 onlyBuiltDependencies:
   - vue-demi
+
+# Patch the exact transitive version pinned by typescript-eslint/minimatch.
+# GHSA-6j4f-fj2g-mc7p and related brace-expansion advisories.
+overrides:
+  brace-expansion@5.0.6: 5.0.12

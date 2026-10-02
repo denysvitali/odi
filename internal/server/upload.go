@@ -2,12 +2,16 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -77,10 +81,11 @@ func (s *Server) handleUpload(c *gin.Context) {
 
 	form, err := c.MultipartForm()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid multipart form: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid multipart form"})
 		return
 	}
 
+	defer func() { _ = form.RemoveAll() }()
 	files := form.File["files"]
 	if len(files) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no files provided"})
@@ -91,17 +96,13 @@ func (s *Server) handleUpload(c *gin.Context) {
 	if scanID == "" {
 		scanID = uuid.NewString()
 	} else if _, err := uuid.Parse(scanID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scanID: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scanID"})
 		return
 	}
-	sequenceOffset := 0
-	if rawOffset := c.PostForm("sequenceOffset"); rawOffset != "" {
-		parsedOffset, err := strconv.Atoi(rawOffset)
-		if err != nil || parsedOffset < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sequenceOffset"})
-			return
-		}
-		sequenceOffset = parsedOffset
+	sequenceIDs, err := parseUploadSequenceIDs(c.PostForm("sequenceIDs"), c.PostForm("sequenceOffset"), len(files))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid page sequence"})
+		return
 	}
 	log.Infof("upload started: scan=%s files=%d", scanID, len(files))
 	results := make([]uploadPageResult, len(files))
@@ -117,7 +118,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 		f, err := fh.Open()
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to open uploaded file"})
-			log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q for mime sniff: %v", scanID, sequenceOffset+i+1, fh.Filename, err)
+			log.Errorf("upload scan=%s page=%d: unable to open uploaded file for mime sniff: %v", scanID, sequenceIDs[i], err)
 			return
 		}
 		buf := make([]byte, sniffBufferSize)
@@ -125,7 +126,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 		_ = f.Close()
 		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unable to read uploaded file"})
-			log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q for mime sniff: %v", scanID, sequenceOffset+i+1, fh.Filename, err)
+			log.Errorf("upload scan=%s page=%d: unable to read uploaded file for mime sniff: %v", scanID, sequenceIDs[i], err)
 			return
 		}
 		mime := http.DetectContentType(buf[:n])
@@ -133,7 +134,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			mime = mime[:idx]
 		}
 		if !isAllowedMime(mime) {
-			log.Warnf("upload scan=%s page=%d: rejecting file %q with disallowed mime %q", scanID, sequenceOffset+i+1, fh.Filename, mime)
+			log.Warnf("upload scan=%s page=%d: rejecting file with disallowed mime %q", scanID, sequenceIDs[i], mime)
 			c.JSON(http.StatusUnsupportedMediaType, gin.H{
 				"error":    userErrUnsupportedMedia,
 				"filename": fh.Filename,
@@ -157,14 +158,14 @@ func (s *Server) handleUpload(c *gin.Context) {
 			defer func() { <-sem }()
 
 			result := uploadPageResult{
-				SequenceID: sequenceOffset + idx + 1,
+				SequenceID: sequenceIDs[idx],
 			}
 
 			f, err := fileHeader.Open()
 			if err != nil {
 				result.Status = "failed"
 				result.Error = userErrUploadFailed
-				log.Errorf("upload scan=%s page=%d: unable to open uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
+				log.Errorf("upload scan=%s page=%d: unable to open uploaded file: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -176,7 +177,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			if _, err := io.Copy(&buf, f); err != nil {
 				result.Status = "failed"
 				result.Error = userErrUploadFailed
-				log.Errorf("upload scan=%s page=%d: unable to read uploaded file %q: %v", scanID, result.SequenceID, fileHeader.Filename, err)
+				log.Errorf("upload scan=%s page=%d: unable to read uploaded file: %v", scanID, result.SequenceID, err)
 				mu.Lock()
 				results[idx] = result
 				mu.Unlock()
@@ -214,7 +215,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			}
 
 			if err := s.storage.Store(c.Request.Context(), page); err != nil {
-				if releaseErr := s.indexer.ReleaseContentDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
+				if releaseErr := s.releaseUploadDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
 					log.Warnf("upload scan=%s page=%d: unable to release content digest after storage failure: %v", scanID, result.SequenceID, releaseErr)
 				}
 				result.Status = "failed"
@@ -238,7 +239,7 @@ func (s *Server) handleUpload(c *gin.Context) {
 			page.Reader = reader
 
 			if err := s.indexer.Index(c.Request.Context(), page); err != nil {
-				if releaseErr := s.indexer.ReleaseContentDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
+				if releaseErr := s.releaseUploadDigest(c.Request.Context(), digest, page.ID()); releaseErr != nil {
 					log.Warnf("upload scan=%s page=%d: unable to release content digest after index failure: %v", scanID, result.SequenceID, releaseErr)
 				}
 				result.Status = "failed"
@@ -298,4 +299,42 @@ func (s *Server) handleUpload(c *gin.Context) {
 		Failed:     failed,
 		Pages:      results,
 	})
+}
+
+// Explicit IDs preserve scanner ordering even when concurrent workers complete out of order.
+// Older clients can continue sending a contiguous sequenceOffset.
+func parseUploadSequenceIDs(rawIDs, rawOffset string, count int) ([]int, error) {
+	ids := make([]int, count)
+	if rawIDs != "" {
+		if err := json.Unmarshal([]byte(rawIDs), &ids); err != nil || len(ids) != count {
+			return nil, errors.New("sequenceIDs must match files")
+		}
+	} else {
+		offset := 0
+		if rawOffset != "" {
+			var err error
+			offset, err = strconv.Atoi(rawOffset)
+			if err != nil || offset < 0 || offset > math.MaxInt-count {
+				return nil, errors.New("invalid sequenceOffset")
+			}
+		}
+		for i := range ids {
+			ids[i] = offset + i + 1
+		}
+	}
+	seen := make(map[int]bool, count)
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			return nil, errors.New("page IDs must be positive and unique")
+		}
+		seen[id] = true
+	}
+	return ids, nil
+}
+
+// Cleanup must still run when an upload client disconnects.
+func (s *Server) releaseUploadDigest(ctx context.Context, digest, id string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	return s.indexer.ReleaseContentDigest(cleanupCtx, digest, id)
 }

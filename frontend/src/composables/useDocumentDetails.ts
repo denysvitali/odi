@@ -8,21 +8,26 @@ export function useDocumentDetails() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  let generation = 0
+
   const fetchDetails = async (documentId: string, { skipCache = false } = {}) => {
-    if (loading.value) return
+    const current = ++generation
     loading.value = true
     error.value = null
     details.value = null
     try {
-      details.value = await api.getDocumentDetails(documentId, { skipCache })
+      const data = await api.getDocumentDetails(documentId, { skipCache })
+      if (current === generation) details.value = data
     } catch (err) {
-      error.value = errorMessage(err, 'Failed to load document details')
+      if (current === generation) error.value = errorMessage(err, 'Failed to load document details')
     } finally {
-      loading.value = false
+      if (current === generation) loading.value = false
     }
   }
 
   const clearDetails = () => {
+    generation++
+    loading.value = false
     details.value = null
     error.value = null
   }

@@ -109,6 +109,7 @@ interface RequestOptions extends RequestInit {
   retries?: number
   retryDelayMs?: number
   skipCache?: boolean
+  responseType?: 'blob'
 }
 
 function getApiToken(): string | null {
@@ -120,7 +121,7 @@ function getApiToken(): string | null {
   }
 }
 
-function buildHeaders(init: RequestInit | undefined): HeadersInit | undefined {
+export function buildHeaders(init: RequestInit | undefined): HeadersInit | undefined {
   const token = getApiToken()
   if (!token) return init?.headers
   // Merge existing headers with the Authorization header so callers can still
@@ -133,28 +134,35 @@ function buildHeaders(init: RequestInit | undefined): HeadersInit | undefined {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { retries = 2, retryDelayMs = 400, ...init } = options
+  const {
+    retries = options.method && options.method !== 'GET' ? 0 : 2,
+    retryDelayMs = 400,
+    responseType,
+    ...init
+  } = options
   const base = getApiUrl()
-  const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\')) {
+    throw new ApiError('API paths must be relative', 0, 'INVALID_PATH')
+  }
+  const url = `${base.replace(/\/$/, '')}${path}`
 
   let lastError: Error | null = null
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const res = await fetch(url, { ...init, headers: buildHeaders(init) })
+      const res = await fetch(url, { ...init, redirect: 'error', headers: buildHeaders(init) })
       if (!res.ok) {
-        const err = new ApiError(
-          `Request failed: ${res.status} ${res.statusText}`,
-          res.status
-        )
+        const err = new ApiError(`Request failed: ${res.status} ${res.statusText}`, res.status)
         if (!err.retryable || attempt === retries) throw err
         lastError = err
       } else {
+        if (responseType === 'blob') return (await res.blob()) as T
         if (res.status === 204) return undefined as unknown as T
         const ct = res.headers.get('content-type') || ''
         if (ct.includes('application/json')) return (await res.json()) as T
         return (await res.text()) as unknown as T
       }
     } catch (err) {
+      if (init.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) throw err
       if (err instanceof ApiError && !err.retryable) throw err
       lastError = err as Error
       if (attempt === retries) break
@@ -169,7 +177,9 @@ const detailsCache = new Map<string, DocumentDetails>()
 const detailsInflight = new Map<string, Promise<DocumentDetails>>()
 
 export const api = {
-  listDocuments(params: { size?: number; scrollId?: string; dateFrom?: string; dateTo?: string } = {}): Promise<SearchResult<Document>> {
+  listDocuments(
+    params: { size?: number; scrollId?: string; dateFrom?: string; dateTo?: string } = {}
+  ): Promise<SearchResult<Document>> {
     const qs = new URLSearchParams()
     if (params.size) qs.set('size', String(params.size))
     if (params.scrollId) qs.set('scroll_id', params.scrollId)
@@ -178,12 +188,17 @@ export const api = {
     return request(`/documents?${qs.toString()}`)
   },
 
-  search(params: { searchTerm?: string; scrollId?: string; size?: number; filters?: SearchFilters }): Promise<SearchResult<Document>> {
+  search(params: {
+    searchTerm?: string
+    scrollId?: string
+    size?: number
+    filters?: SearchFilters
+  }): Promise<SearchResult<Document>> {
     // Flatten filters to top-level fields to match backend SearchRequest struct
     const body: Record<string, unknown> = {
       searchTerm: params.searchTerm,
       scrollId: params.scrollId,
-      size: params.size,
+      size: params.size
     }
     if (params.filters) {
       if (params.filters.companies?.length) body.companies = params.filters.companies
@@ -204,7 +219,7 @@ export const api = {
   searchFacets(params: { searchTerm?: string; filters?: SearchFilters }): Promise<FacetData> {
     // Flatten filters to top-level fields to match backend SearchFacetsRequest struct
     const body: Record<string, unknown> = {
-      searchTerm: params.searchTerm,
+      searchTerm: params.searchTerm
     }
     if (params.filters) {
       if (params.filters.companies?.length) body.companies = params.filters.companies
@@ -251,12 +266,15 @@ export const api = {
     detailsCache.clear()
   },
 
-  thumbnailUrl(id: string): string {
-    return `${getApiUrl()}/thumbnails/${encodeURIComponent(id)}`
+  getThumbnail(id: string, signal?: AbortSignal): Promise<Blob> {
+    return request(`/thumbnails/${encodeURIComponent(id)}`, { responseType: 'blob', signal })
   },
 
-  fileUrl(id: string): string {
-    return `${getApiUrl()}/files/${encodeURIComponent(id).replace(/_/g, '/')}`
+  getFile(id: string, signal?: AbortSignal): Promise<Blob> {
+    return request(`/files/${encodeURIComponent(id).replace(/_/g, '/')}`, {
+      responseType: 'blob',
+      signal
+    })
   },
 
   // getReminders fetches the upcoming-deadlines list. The optional window (in

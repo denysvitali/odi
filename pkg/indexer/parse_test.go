@@ -83,9 +83,10 @@ func TestDecodeError(t *testing.T) {
 		body string
 		want string
 	}{
-		{"string error", `{"error":"boom"}`, "boom"},
-		{"object error", `{"error":{"type":"x","reason":"y"}}`, `{"type":"x","reason":"y"}`},
-		{"empty error field", `{}`, ""},
+		{"string error", `{"error":"private-document-content"}`, "OpenSearch returned an unrecognized error"},
+		{"object error", `{"error":{"type":"x","reason":"private-document-content"}}`, "OpenSearch request failed"},
+		{"known type", `{"error":{"type":"resource_already_exists_exception","reason":"private-document-content"}}`, "resource_already_exists_exception"},
+		{"empty error field", `{}`, "OpenSearch request failed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,7 +100,7 @@ func TestDecodeError(t *testing.T) {
 
 func TestDecodeErrorInvalidJSON(t *testing.T) {
 	got := decodeError(io.NopCloser(strings.NewReader("not json")))
-	if !strings.HasPrefix(got, "failed to decode error:") {
+	if got != "OpenSearch returned an unrecognized error" {
 		t.Errorf("expected decode-failure message, got %q", got)
 	}
 }

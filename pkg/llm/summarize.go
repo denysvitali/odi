@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -87,7 +88,7 @@ func (c *Client) parseSummary(rawContent string) (Summary, error) {
 	}
 	var result Summary
 	if err := json.Unmarshal([]byte(obj), &result); err != nil {
-		return Summary{}, err
+		return Summary{}, errors.New("invalid summary JSON schema")
 	}
 	return cleanSummary(result), nil
 }
@@ -113,7 +114,7 @@ func (c *Client) Summarize(ctx context.Context, text string) (Summary, error) {
 	}
 	s, err := c.parseSummary(content)
 	if err != nil {
-		log.Warnf("LLM returned unparsable summary JSON: %q", strings.TrimSpace(content))
+		log.Warn("LLM returned unparsable summary JSON")
 		return Summary{}, fmt.Errorf("parse summary: %w", err)
 	}
 	return s, nil

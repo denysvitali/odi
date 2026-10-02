@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -108,7 +109,7 @@ func (c *Client) parseClassification(rawContent string) (Classification, error) 
 	}
 	var result Classification
 	if err := json.Unmarshal([]byte(obj), &result); err != nil {
-		return Classification{}, err
+		return Classification{}, errors.New("invalid classification JSON schema")
 	}
 	return cleanClassification(result), nil
 }
@@ -134,7 +135,7 @@ func (c *Client) Classify(ctx context.Context, text string) (Classification, err
 	}
 	cl, err := c.parseClassification(content)
 	if err != nil {
-		log.Warnf("LLM returned unparsable classification JSON: %q", strings.TrimSpace(content))
+		log.Warn("LLM returned unparsable classification JSON")
 		return Classification{}, fmt.Errorf("parse classification: %w", err)
 	}
 	return cl, nil

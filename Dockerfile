@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.24
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.6-alpine AS builder
 ENV CGO_ENABLED=0 \
     GOFLAGS="-buildvcs=false -mod=mod"
 
@@ -28,4 +28,4 @@ EXPOSE 8085
 HEALTHCHECK NONE
 
 ENTRYPOINT ["/usr/local/bin/odi"]
-CMD ["serve"]
+CMD ["serve", "--listen-addr", "0.0.0.0:8085"]

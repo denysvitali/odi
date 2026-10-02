@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
     tags: ["v*"]
@@ -8,8 +9,8 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.26"
-  NODE_VERSION: "22"
+  GO_VERSION: "1.26.6"
+  NODE_VERSION: "24.21.0"
   GOLANGCI_LINT_VERSION: "latest"
 
 concurrency:
@@ -71,7 +72,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11.2.2
+          version: 11.10.0
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -97,6 +98,14 @@ jobs:
         working-directory: frontend
         run: pnpm test
 
+      - name: Install browser for synthetic acceptance tests
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser acceptance (desktop and mobile)
+        working-directory: frontend
+        run: pnpm run test:e2e
+
   # ── Frontend security audit ─────────────────────────────────────────────────
   frontend-audit:
     name: Frontend — pnpm audit
@@ -107,7 +116,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11.2.2
+          version: 11.10.0
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -121,12 +130,9 @@ jobs:
         # Ignore interactive build-script approval in CI (pnpm requires manual approval in non-interactive mode).
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # TODO: drop continue-on-error once the dependency tree is clean enough
-      # that transient advisories no longer break PRs. We keep --audit-level=high
-      # to filter out dev-dep noise at lower severities.
+      # High and critical advisories block publication and merging.
       - name: pnpm audit (high+)
         working-directory: frontend
-        continue-on-error: true
         run: pnpm audit --audit-level=high
 
   # ── Dependency review (PRs only) ────────────────────────────────────────────
@@ -137,6 +143,5 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/dependency-review-action@v5.0.0
-        continue-on-error: true
         with:
           fail-on-severity: high

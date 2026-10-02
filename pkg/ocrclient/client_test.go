@@ -1,89 +1,38 @@
 package ocrclient_test
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/denysvitali/odi/pkg/ocrclient"
 	"github.com/denysvitali/odi/pkg/ocrclient/caroundtripper"
-	"github.com/denysvitali/odi/pkg/ocrtext"
+	"github.com/stretchr/testify/require"
 )
 
-func getFile(t *testing.T, path string) *os.File {
-	f, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("unable to open file: %v", err)
-	}
-	return f
-}
-
-func getClient(t *testing.T) *ocrclient.Client {
-	ocrAPIAddr := os.Getenv("OCR_API_ADDR")
-	if ocrAPIAddr == "" {
-		t.Skip("OCR_API_ADDR not set, skipping test")
+// This test sends synthetic pixels only and requires explicit live-test consent.
+func TestLiveOCRHealthAndProcess(t *testing.T) {
+	if os.Getenv("E2E_TEST") != "true" || os.Getenv("OCR_API_ADDR") == "" {
+		t.Skip("requires E2E_TEST=true and OCR_API_ADDR")
 	}
 	c, err := ocrclient.New(os.Getenv("OCR_API_ADDR"))
-	if err != nil {
-		t.Fatalf("unable to create client: %v", err)
+	require.NoError(t, err)
+	if caPath := os.Getenv("OCR_API_CA_PATH"); caPath != "" {
+		transport, err := caroundtripper.New(caPath)
+		require.NoError(t, err)
+		require.NoError(t, c.SetHTTPTransport(transport))
 	}
-
-	caRoundtripper, err := caroundtripper.New(os.Getenv("OCR_API_CA_PATH"))
-	if err != nil {
-		t.Fatalf("unable to create CA client: %v", err)
-	}
-
-	c.SetHTTPTransport(caRoundtripper)
-	return c
-}
-
-func TestClient(t *testing.T) {
-	c := getClient(t)
-	healthy, err := c.Healthz()
-	assert.True(t, healthy)
-	assert.Nil(t, err)
-
-	f := getFile(t, "../../resources/receipt-1.jpg")
-	defer f.Close()
-	ocrResult, err := c.Process(context.Background(), f)
-	if err != nil {
-		t.Fatalf("unable to perform OCR: %v", err)
-	}
-
-	fmt.Printf("OCR Result: %v", ocrResult)
-}
-
-func TestClientPrivate(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping test in short mode.")
-	}
-	c := getClient(t)
-	healthy, err := c.Healthz()
-	assert.True(t, healthy)
-	assert.Nil(t, err)
-
-	f, err := os.CreateTemp(os.TempDir(), "*.json")
-	if err != nil {
-		t.Fatalf("unable to create temporary file: %v", err)
-	}
-
-	inputFile := getFile(t, "../../resources/receipt-1.jpg")
-	defer inputFile.Close()
-	ocrResult, err := c.Process(context.Background(), inputFile)
-	if err != nil {
-		t.Fatalf("unable to perform OCR: %v", err)
-	}
-
-	enc := json.NewEncoder(f)
-	err = enc.Encode(ocrResult)
-	if err != nil {
-		t.Fatalf("unable to encode JSON: %v", err)
-	}
-	defer f.Close()
-	fmt.Printf("output file: %s", f.Name())
-	fmt.Printf("text = %s", ocrtext.GetText(ocrResult, ocrtext.DefaultMergeDistance, ocrtext.DefaultHorizontalDistance))
+	ctx, cancel := context.WithTimeout(context.Background(), ocrclient.DefaultTimeout)
+	defer cancel()
+	healthy, err := c.HealthzContext(ctx)
+	require.NoError(t, err)
+	require.True(t, healthy)
+	var input bytes.Buffer
+	require.NoError(t, jpeg.Encode(&input, image.NewRGBA(image.Rect(0, 0, 32, 32)), nil))
+	result, err := c.Process(ctx, &input)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }

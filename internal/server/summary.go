@@ -83,12 +83,7 @@ func (s *Server) handleDocumentSummary(c *gin.Context) {
 		return
 	}
 
-	client, err := getChatLLMClient()
-	if err != nil {
-		log.Errorf("unable to build LLM client for summary: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "summary not configured"})
-		return
-	}
+	client := s.llmClient
 	if client == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "summary not configured"})
 		return

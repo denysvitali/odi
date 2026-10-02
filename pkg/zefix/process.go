@@ -24,10 +24,14 @@ type Processor struct {
 }
 
 func New(zefixDsn string) (*Processor, error) {
+	return NewWithContext(context.Background(), zefixDsn)
+}
+
+func NewWithContext(ctx context.Context, zefixDsn string) (*Processor, error) {
 	if IsDisabledDSN(zefixDsn) {
 		return &Processor{}, nil
 	}
-	zefixClient, err := zefix.New(zefixDsn)
+	zefixClient, err := zefix.NewWithContext(ctx, zefixDsn)
 	if err != nil {
 		return nil, err
 	}
@@ -138,16 +142,16 @@ func (p *Processor) FindCompanies(text string) []zefix.Company {
 			// Skip Post CH AG since it does appear on basically every document
 			continue
 		}
-		log.Infof("found company: %s", companyName)
+		log.Debug("company candidate found")
 		c, err := p.zefixClient.FindCompany(companyName)
 		if err != nil {
-			log.Warnf("error while fetching company: %s", err)
+			log.Warn("error while fetching company")
 			continue
 		}
 
 		if c != nil {
 			companiesMap[c.LegalName] = *c
-			log.Infof("Adding company: %v", c.LegalName)
+			log.Debug("company matched")
 		}
 	}
 
@@ -160,10 +164,14 @@ func (p *Processor) FindCompanies(text string) []zefix.Company {
 }
 
 func (p *Processor) Ping() error {
+	return p.PingContext(context.Background())
+}
+
+func (p *Processor) PingContext(ctx context.Context) error {
 	if p.zefixClient == nil {
 		return nil
 	}
-	return p.zefixClient.Ping()
+	return p.zefixClient.PingContext(ctx)
 }
 
 func printErrors(errors []error) {
@@ -173,4 +181,11 @@ func printErrors(errors []error) {
 			log.Warnf("error: %s", err)
 		}
 	}
+}
+
+func (p *Processor) Close() error {
+	if p.zefixClient == nil {
+		return nil
+	}
+	return p.zefixClient.Close()
 }

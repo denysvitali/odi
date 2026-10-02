@@ -1,5 +1,6 @@
-import { ref } from 'vue'
+import { ref, getCurrentScope, onScopeDispose } from 'vue'
 import { getApiUrl } from '@/lib/config'
+import { buildHeaders } from '@/api/client'
 
 export interface UploadPageResult {
   sequenceID: number
@@ -24,7 +25,7 @@ function newScanID(): string {
     return crypto.randomUUID()
   }
   return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
-    (Number(c) ^ (Math.random() * 16) >> (Number(c) / 4)).toString(16)
+    (Number(c) ^ ((Math.random() * 16) >> (Number(c) / 4))).toString(16)
   )
 }
 
@@ -34,6 +35,7 @@ export function useUpload() {
   const result = ref<UploadResult | null>(null)
   const error = ref<string | null>(null)
   const attempt = ref(0)
+  let cancelled = false
   let currentXhr: XMLHttpRequest | null = null
 
   const attemptOnce = (
@@ -78,6 +80,9 @@ export function useUpload() {
       xhr.addEventListener('error', () => reject(new Error('Network error')))
       xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
       xhr.open('POST', `${getApiUrl()}/upload`)
+      new Headers(buildHeaders(undefined)).forEach((value, name) =>
+        xhr.setRequestHeader(name, value)
+      )
       xhr.send(formData)
     })
 
@@ -85,6 +90,7 @@ export function useUpload() {
     if (uploading.value) return
     if (files.length === 0) return
 
+    cancelled = false
     uploading.value = true
     progress.value = 0
     result.value = null
@@ -104,15 +110,18 @@ export function useUpload() {
 
     try {
       for (let start = 0; start < files.length; start += UPLOAD_CHUNK_SIZE) {
+        if (cancelled) return
         const chunk = files.slice(start, start + UPLOAD_CHUNK_SIZE)
         const chunkBytes = chunk.reduce((sum, file) => sum + file.size, 0)
         let chunkAttempt = 0
 
         while (chunkAttempt < MAX_ATTEMPTS) {
+          if (cancelled) return
           chunkAttempt += 1
           attempt.value += 1
           try {
             const data = await attemptOnce(chunk, scanID, start, uploadedBytes, totalBytes)
+            if (cancelled) return
             combined.processed += data.processed
             combined.duplicates += data.duplicates
             combined.failed += data.failed
@@ -121,6 +130,7 @@ export function useUpload() {
             progress.value = Math.round((uploadedBytes / totalBytes) * 100)
             break
           } catch (caught) {
+            if (cancelled) return
             const err = caught as Error & { status?: number }
             const status = err.status ?? 0
             const retryable = status === 0 || status >= 500
@@ -141,9 +151,9 @@ export function useUpload() {
   }
 
   const abort = () => {
+    cancelled = true
     currentXhr?.abort()
     currentXhr = null
-    uploading.value = false
   }
 
   const reset = () => {
@@ -153,6 +163,8 @@ export function useUpload() {
     error.value = null
     attempt.value = 0
   }
+
+  if (getCurrentScope()) onScopeDispose(abort)
 
   return {
     uploading,

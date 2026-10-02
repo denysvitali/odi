@@ -22,6 +22,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestIngest(t *testing.T) {
+	if os.Getenv("E2E_TEST") != "true" {
+		t.Skip("skipping live scanner test; E2E_TEST is not set")
+	}
 	scanner := os.Getenv("SCANNER_NAME")
 	if scanner == "" {
 		t.Skip("SCANNER_NAME not set, skipping test")

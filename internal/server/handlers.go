@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,10 @@ func (s *Server) handleSearch(c *gin.Context) {
 		},
 	}
 
+	if strings.TrimSpace(searchRequest.SearchTerm) == "" {
+		queryString = map[string]any{"match_all": map[string]any{}}
+	}
+
 	filters := buildSearchFilters(searchRequest)
 
 	query := queryString
@@ -87,7 +92,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 
 	jsonBody, marshalErr := json.Marshal(searchContent)
 	if marshalErr != nil {
-		log.Errorf("unable to marshal search body for term=%q size=%d: %v", searchRequest.SearchTerm, size, marshalErr)
+		log.Errorf("unable to marshal search body size=%d: %v", size, marshalErr)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -100,19 +105,19 @@ func (s *Server) handleSearch(c *gin.Context) {
 		},
 	})
 	if err != nil {
-		log.Errorf("unable to perform search (term=%q size=%d): %v", searchRequest.SearchTerm, size, err)
+		log.Errorf("unable to perform search size=%d", size)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 	defer searchResp.Inspect().Response.Body.Close()
 
 	if searchResp.Inspect().Response.StatusCode >= 400 {
-		log.Errorf("search returned error (term=%q): %s", searchRequest.SearchTerm, searchResp.Inspect().Response.Status())
+		log.Errorf("search returned status %d", searchResp.Inspect().Response.StatusCode)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	s.streamResponseBody(c, searchResp.Inspect().Response.Body, fmt.Sprintf("unable to stream search response (term=%q)", searchRequest.SearchTerm))
+	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream search response")
 }
 
 // buildSearchFilters constructs OpenSearch filter clauses from the structured
@@ -192,6 +197,10 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		},
 	}
 
+	if strings.TrimSpace(req.SearchTerm) == "" {
+		queryString = map[string]any{"match_all": map[string]any{}}
+	}
+
 	filters := buildSearchFilters(SearchRequest{
 		Companies:  req.Companies,
 		DateFrom:   req.DateFrom,
@@ -245,7 +254,7 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 
 	jsonBody, marshalErr := json.Marshal(searchContent)
 	if marshalErr != nil {
-		log.Errorf("unable to marshal facets body for term=%q: %v", req.SearchTerm, marshalErr)
+		log.Errorf("unable to marshal facets body: %v", marshalErr)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -255,19 +264,19 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		Body:    bytes.NewReader(jsonBody),
 	})
 	if err != nil {
-		log.Errorf("unable to perform facets search (term=%q): %v", req.SearchTerm, err)
+		log.Error("unable to perform facets search")
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 	defer searchResp.Inspect().Response.Body.Close()
 
 	if searchResp.Inspect().Response.StatusCode >= 400 {
-		log.Errorf("facets search returned error (term=%q): %s", req.SearchTerm, searchResp.Inspect().Response.Status())
+		log.Errorf("facets search returned status %d", searchResp.Inspect().Response.StatusCode)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
 
-	s.streamResponseBody(c, searchResp.Inspect().Response.Body, fmt.Sprintf("unable to stream facets response (term=%q)", req.SearchTerm))
+	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream facets response")
 }
 
 // streamScroll continues an OpenSearch scroll request and streams the raw
@@ -305,6 +314,7 @@ func (s *Server) streamResponseBody(c *gin.Context, body io.Reader, errMsg strin
 }
 
 func (s *Server) returnDocument(c *gin.Context, scanID string, sequenceIdStr string) {
+	c.Header("Cache-Control", "no-store")
 	sequenceId, err := strconv.ParseInt(sequenceIdStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, badRequest)
@@ -355,6 +365,7 @@ func (s *Server) handleGetFile(c *gin.Context) {
 }
 
 func (s *Server) handleGetThumbnail(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	id := c.Param("id")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, badRequest)

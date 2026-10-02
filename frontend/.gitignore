@@ -28,3 +28,7 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# Browser acceptance artifacts
+/playwright-report/
+/test-results/

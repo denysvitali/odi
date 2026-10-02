@@ -753,3 +753,28 @@ func TestBuildSearchFilters_AllCombined(t *testing.T) {
 	})
 	assert.Len(t, filters, 4, "all filters combined should produce 4 clauses: company, date, barcode, title")
 }
+
+func TestSearchAndFacets_FilterOnlyUsesMatchAll(t *testing.T) {
+	for _, path := range []string{"/api/v1/search", "/api/v1/search/facets"} {
+		for _, term := range []string{"", "  "} {
+			t.Run(path+"/"+term, func(t *testing.T) {
+				var captured map[string]any
+				ms := searchTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+					captured = decodeSearchBody(t, r)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"hits":{"hits":[],"total":{"value":0}},"aggregations":{}}`)
+				})
+				body, err := json.Marshal(map[string]any{"searchTerm": term, "docTypes": []string{"invoice"}})
+				require.NoError(t, err)
+				w := httptest.NewRecorder()
+				ms.router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body))))
+				require.Equal(t, http.StatusOK, w.Code)
+				query := captured["query"].(map[string]any)["bool"].(map[string]any)
+				must := query["must"].([]any)[0].(map[string]any)
+				require.Contains(t, must, "match_all")
+				require.NotContains(t, must, "query_string")
+				require.NotEmpty(t, query["filter"])
+			})
+		}
+	}
+}

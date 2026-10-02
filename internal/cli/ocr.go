@@ -83,7 +83,9 @@ func runOcr(cmd *cobra.Command, args []string) error {
 			ui.PrintErrorf("Failed to create CA RoundTripper: %v", err)
 			return err
 		}
-		c.SetHTTPTransport(rt)
+		if err := c.SetHTTPTransport(rt); err != nil {
+			return fmt.Errorf("configure OCR transport: %w", err)
+		}
 	}
 
 	f, err := os.Open(inputPath)

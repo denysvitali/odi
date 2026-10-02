@@ -35,13 +35,16 @@ const (
 	// rejects loopback/link-local/private IP destinations. Intended for local
 	// development against on-host OCR servers.
 	EnvAllowPrivateTargets = "OCR_ALLOW_PRIVATE_TARGETS"
+	// EnvAllowedHosts optionally restricts explicit private-target consent to configured hosts.
+	EnvAllowedHosts = "OCR_ALLOWED_HOSTS"
 )
 
 var log = logrus.StandardLogger().WithField("package", "ocrclient")
 
 type Client struct {
-	http     *http.Client
-	endpoint *url.URL
+	http                *http.Client
+	endpoint            *url.URL
+	allowPrivateTargets bool
 
 	sem            chan struct{}
 	maxRetries     int
@@ -226,11 +229,16 @@ func (c *Client) release() {
 
 // Healthz checks if the OCR service is healthy and returns true if it is.
 func (c *Client) Healthz() (bool, error) {
+	return c.HealthzContext(context.Background())
+}
+
+// HealthzContext checks OCR availability using the caller's cancellation deadline.
+func (c *Client) HealthzContext(ctx context.Context) (bool, error) {
 	healthEndpoint, err := c.endpoint.Parse("/healthz")
 	if err != nil {
 		return false, err
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, healthEndpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthEndpoint.String(), nil)
 	if err != nil {
 		return false, err
 	}
@@ -250,7 +258,7 @@ func (c *Client) Healthz() (bool, error) {
 // 1918 private ranges (including the AWS instance metadata service at
 // 169.254.169.254). When the OCR_ALLOW_PRIVATE_TARGETS env var is set to
 // "true" the guard is bypassed but a warning is emitted.
-func validateOCRTarget(u *url.URL) error {
+func validateOCRTargetContext(ctx context.Context, u *url.URL) error {
 	if u == nil {
 		return errors.New("nil URL")
 	}
@@ -259,8 +267,20 @@ func validateOCRTarget(u *url.URL) error {
 		return errors.New("OCR target has no host")
 	}
 
-	allow := strings.EqualFold(os.Getenv(EnvAllowPrivateTargets), "true")
+	allow := strings.EqualFold(ocrEnv(EnvAllowPrivateTargets), "true")
 	if allow {
+		if hosts := strings.TrimSpace(ocrEnv(EnvAllowedHosts)); hosts != "" {
+			matched := false
+			for _, allowedHost := range strings.Split(hosts, ",") {
+				if strings.EqualFold(strings.TrimSpace(allowedHost), host) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return errors.New("OCR target is outside the configured host allowlist")
+			}
+		}
 		log.Warnf("%s=true: OCR client SSRF guard disabled; private/loopback OCR targets are permitted", EnvAllowPrivateTargets)
 		return nil
 	}
@@ -283,16 +303,15 @@ func validateOCRTarget(u *url.URL) error {
 	}
 
 	// Hostname → IP resolution. Reject if ANY resolved address is private.
-	//nolint:noctx // Startup-time DNS validation; no request-scoped context available.
-	ips, err := net.LookupIP(host)
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		// Treat resolution failures as fatal so we don't accidentally bypass
 		// the guard when DNS is broken at startup.
 		return fmt.Errorf("unable to resolve OCR target %q: %w", host, err)
 	}
 	for _, ip := range ips {
-		if err := checkIP(ip); err != nil {
-			return fmt.Errorf("OCR target %q resolves to %s: %w (set %s=true to allow)", host, ip, err, EnvAllowPrivateTargets)
+		if err := checkIP(ip.IP); err != nil {
+			return fmt.Errorf("OCR target %q resolves to %s: %w (set %s=true to allow)", host, ip.IP, err, EnvAllowPrivateTargets)
 		}
 	}
 	return nil
@@ -325,6 +344,11 @@ func checkIP(ip net.IP) error {
 }
 
 func New(endpoint string, opts ...Option) (*Client, error) {
+	return NewWithContext(context.Background(), endpoint, opts...)
+}
+
+// NewWithContext also bounds startup DNS resolution by the caller's context.
+func NewWithContext(ctx context.Context, endpoint string, opts ...Option) (*Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
@@ -334,19 +358,27 @@ func New(endpoint string, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("scheme %s is not supported", u.Scheme)
 	}
 
-	if err := validateOCRTarget(u); err != nil {
+	if u.User != nil {
+		return nil, errors.New("OCR target must not contain credentials")
+	}
+	if err := validateOCRTargetContext(ctx, u); err != nil {
 		return nil, err
 	}
 
 	c := &Client{
-		endpoint: u,
+		endpoint:            u,
+		allowPrivateTargets: strings.EqualFold(ocrEnv(EnvAllowPrivateTargets), "true"),
 		http: &http.Client{
-			Timeout: DefaultTimeout,
+			Timeout:       DefaultTimeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		sem:            make(chan struct{}, DefaultMaxConcurrency),
 		maxRetries:     DefaultMaxRetries,
 		initialBackoff: DefaultInitialBackoff,
 		maxBackoff:     DefaultMaxBackoff,
+	}
+	if err := c.SetHTTPTransport(http.DefaultTransport.(*http.Transport)); err != nil {
+		return nil, err
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -354,6 +386,79 @@ func New(endpoint string, opts ...Option) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) SetHTTPTransport(transport http.RoundTripper) {
-	c.http.Transport = transport
+// SetHTTPTransport preserves custom TLS roots while enforcing destination policy.
+// Opaque RoundTrippers cannot guarantee which address receives a document.
+func (c *Client) SetHTTPTransport(transport http.RoundTripper) error {
+	var base *http.Transport
+	switch t := transport.(type) {
+	case *http.Transport:
+		base = t
+	case interface{ HTTPTransport() *http.Transport }:
+		base = t.HTTPTransport()
+	default:
+		return errors.New("OCR transport must expose an HTTP transport for destination validation")
+	}
+	if base == nil {
+		return errors.New("nil OCR HTTP transport")
+	}
+	t := base.Clone()
+	// Proxies and custom TLS dialers would bypass the validated direct dial.
+	t.Proxy = nil
+	t.DialTLS = nil //nolint:staticcheck // Clear deprecated TLS dial hooks so they cannot bypass the guarded dialer.
+	t.DialTLSContext = nil
+	dialer := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	t.DialContext = guardedDialContext(c.allowPrivateTargets, net.DefaultResolver.LookupIPAddr, dialer.DialContext)
+	c.http.Transport = t
+	return nil
+}
+
+func guardedDialContext(allowPrivate bool,
+	resolve func(context.Context, string) ([]net.IPAddr, error),
+	dial func(context.Context, string, string) (net.Conn, error),
+) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, errors.New("invalid OCR destination address")
+		}
+		ips, err := resolve(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve OCR destination: %w", err)
+		}
+		if len(ips) == 0 {
+			return nil, errors.New("OCR destination resolved to no addresses")
+		}
+		// Check every answer before dialing any, then dial the checked numeric IP.
+		for _, addr := range ips {
+			if !allowPrivate {
+				if err := checkIP(addr.IP); err != nil {
+					return nil, fmt.Errorf("OCR destination rejected: %w", err)
+				}
+			}
+		}
+		var lastErr error
+		for _, addr := range ips {
+			ip := addr.IP.String()
+			if addr.Zone != "" {
+				ip += "%" + addr.Zone
+			}
+			conn, err := dial(ctx, network, net.JoinHostPort(ip, port))
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+		}
+		return nil, lastErr
+	}
+}
+
+// Prefer ODI-prefixed configuration while preserving the legacy variable names.
+func ocrEnv(name string) string {
+	if value, present := os.LookupEnv("ODI_" + name); present {
+		return value
+	}
+	return os.Getenv(name)
 }

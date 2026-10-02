@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
@@ -52,6 +53,9 @@ func Run(ctx context.Context, storage model.Retriever, idx Indexer, pages []mode
 		}
 
 		pageData, err := io.ReadAll(page.Reader)
+		if closer, ok := page.Reader.(io.Closer); ok {
+			err = errors.Join(err, closer.Close())
+		}
 		if err != nil {
 			result.Failed++
 			emit(progress, PageResult{Page: listedPage, Status: "failed", Error: fmt.Errorf("read page: %w", err)}, result)
@@ -74,7 +78,10 @@ func Run(ctx context.Context, storage model.Retriever, idx Indexer, pages []mode
 		}
 
 		if err := idx.Index(ctx, *page); err != nil {
-			if releaseErr := idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			releaseErr := idx.ReleaseContentDigest(cleanupCtx, page.ContentDigest, page.ID())
+			cancel()
+			if releaseErr != nil {
 				err = errors.Join(err, fmt.Errorf("release content digest: %w", releaseErr))
 			}
 			result.Failed++

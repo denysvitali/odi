@@ -3,7 +3,7 @@
 [![CI](https://github.com/denysvitali/odi/actions/workflows/ci.yml/badge.svg)](https://github.com/denysvitali/odi/actions/workflows/ci.yml)
 [![Images](https://github.com/denysvitali/odi/actions/workflows/images.yml/badge.svg)](https://github.com/denysvitali/odi/actions/workflows/images.yml)
 
-**Privacy-first, self-hosted document digitization.** Scan paper documents with a network scanner, run OCR on a device you control, and full-text search the archive — no cloud services, no telemetry.
+**Privacy-first, self-hosted document digitization.** Scan paper documents with a network scanner, run OCR on a device you control, and full-text search the archive — no required cloud services, no telemetry.
 
 ## Architecture
 
@@ -78,8 +78,8 @@ The Helm chart lives in a separate repository.
 
 | Tool | Purpose |
 |---|---|
-| Go 1.26+ | Backend build / tests |
-| pnpm | Frontend build |
+| Go 1.26.6 | Backend build / tests |
+| Node 24.21.0 and pnpm 11.10.0 | Frontend build (same versions as CI and Docker) |
 | Docker + Compose | OpenSearch, OpenSearch Dashboards, PostgreSQL |
 | [ocr-server](https://github.com/denysvitali/ocr-server) | Android ML Kit OCR endpoint reachable from the backend |
 | AirScan / eSCL scanner | Live scanning (optional — you can also index from a directory) |
@@ -89,12 +89,15 @@ The Helm chart lives in a separate repository.
 ```bash
 # 1. Configure shared secrets
 cp .env.example .env
-$EDITOR .env            # at minimum set OPENSEARCH_ADMIN_PASSWORD and POSTGRES_PASSWORD
+$EDITOR .env            # set OPENSEARCH_ADMIN_PASSWORD and POSTGRES_PASSWORD
+# Configure trusted OCR + private-target consent (see Configuration), or clear
+# OCR_API_ADDR for an intentional read-only API.
 
 # 2. Bring up infrastructure (OpenSearch, Dashboards, PostgreSQL)
 make docker-up
 
-# 3. Build everything (Go binary + frontend bundle)
+# 3. Install frontend dependencies, then build everything
+(cd frontend && pnpm install --frozen-lockfile --ignore-scripts)
 make build
 
 # 4. Import the Zefix register (optional — enables company matching)
@@ -108,7 +111,7 @@ go run . index /path/to/scans    # image directory
 go run . pdf   /path/to/pdfs     # PDFs
 
 # 7. Run the frontend
-cd frontend && pnpm install && pnpm run dev
+cd frontend && pnpm run dev
 ```
 
 The SPA loads runtime settings from `frontend/public/settings.json` (or `settings.json.tpl` in Docker). It needs two values: `apiUrl` (backend REST) and `opensearchUrl` (OpenSearch Dashboards, for deep links only).
@@ -167,6 +170,7 @@ The backend is fully env-driven. See [`.env.example`](.env.example) for the comp
 | `B2_ACCOUNT` / `B2_KEY` / `B2_BUCKET_NAME` / `B2_PASSPHRASE` | Backblaze B2 (encrypted) |
 | `FS_PATH` | Filesystem storage root |
 | `OCR_API_ADDR` / `OCR_API_CA_PATH` | OCR service |
+| `ODI_OCR_ALLOW_PRIVATE_TARGETS` / `ODI_OCR_ALLOWED_HOSTS` | Explicit LAN OCR consent and optional comma-separated hostname allowlist (legacy unprefixed names also work) |
 | `ZEFIX_DSN` | PostgreSQL DSN for Zefix lookups |
 | `SCANNER_NAME` | AirScan hostname |
 | `CORS_ALLOWED_ORIGINS` | Frontend origins (default `http://localhost:5173`) |
@@ -178,11 +182,17 @@ Values prefixed with `keychain:` are looked up via the OS keychain (e.g. `B2_KEY
 
 ### Authentication
 
-Set `API_TOKEN=<random-secret>` to require bearer-token auth on all `/api/v1/*` routes. Clients must then send `Authorization: Bearer <random-secret>` on every request. If `API_TOKEN` is unset, the server runs unauthenticated — only safe for local development.
+Set `API_TOKEN=<random-secret>` to require bearer-token auth on all `/api/v1/*` routes. Clients must then send `Authorization: Bearer <random-secret>` on every request. The API binds to `127.0.0.1:8085` by default. If `API_TOKEN` is unset, loopback development is allowed; binding a public interface requires either a token or the explicit `--allow-unauthenticated-public` opt-in (`ODI_ALLOW_UNAUTHENTICATED_PUBLIC=true`). Set `--listen-addr 0.0.0.0:8085` and a token when exposing the API through a container or reverse proxy.
+
+The backend container explicitly listens on `0.0.0.0:8085` and requires `API_TOKEN` (or the explicit unauthenticated-public opt-in). To use a different bind address, override the container command; its explicit flag takes precedence over `ODI_LISTEN_ADDR`.
+
+For a trusted OCR server on your LAN, set `ODI_OCR_ALLOW_PRIVATE_TARGETS=true` and restrict it with `ODI_OCR_ALLOWED_HOSTS=ocr.lan` (or your comma-separated configured hostnames). Legacy `OCR_ALLOW_PRIVATE_TARGETS` and `OCR_ALLOWED_HOSTS` also work. The destination guard remains active when dialing and HTTP redirects are disabled. Use `OCR_API_CA_PATH` for a trusted CA rather than disabling TLS validation.
+
+When OCR is configured, startup retries indexer initialization three times and then fails if it cannot initialize; it does not silently disable uploads. Omit `OCR_API_ADDR` for an intentional read-only API. `/readyz` checks the dependencies configured for that deployment.
 
 ## Privacy
 
-- **OCR on hardware you own.** No document ever leaves the LAN during processing.
+- **OCR on hardware you control.** OCR and optional LLM inputs go to their configured endpoints; keep those endpoints on your trusted infrastructure. Optional B2/rclone storage may send document blobs off the LAN.
 - **Encrypted at rest on B2.** AES-256-GCM with a key derived from your passphrase.
 - **Local search index.** OpenSearch runs in Docker on your box.
 - **No telemetry.** The backend and frontend do not phone home.
@@ -194,3 +204,13 @@ Set `API_TOKEN=<random-secret>` to require bearer-token auth on all `/api/v1/*` 
 MIT. See [`LICENSE.txt`](LICENSE.txt) (where present) and [`frontend/LICENSE.txt`](frontend/LICENSE.txt).
 
 Security reports → the address on [denv.it](https://denv.it).
+
+## Operations
+
+Frontend acceptance checks use synthetic HTTP responses in Chromium on desktop and mobile viewports: build the SPA, then run `cd frontend && pnpm run test:e2e` (install Chromium once with `pnpm exec playwright install chromium`). They do not contact a real archive or scanner.
+
+See [Backup and restore](docs/backup-restore.md) for a consistent archive backup, an isolated recovery drill, and acceptance checks. Container images and GitHub Pages publish only after reusable CI succeeds; images are scanned locally before their tags are pushed. Frontend high/critical dependency advisories and dependency review are blocking checks.
+
+`/readyz` reports service readiness separately from `ingestionReady`. A read-only API can
+be ready for search while ingestion is unavailable; remote scanners check the ingestion
+capability before accepting pages.

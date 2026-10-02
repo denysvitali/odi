@@ -65,7 +65,7 @@ the search and document-management UI.
 
 ## Common Commands
 
-Prerequisites are Go 1.26.3 or compatible 1.26.x, Node, pnpm, and Docker Compose for local
+Prerequisites are Go 1.26.6 or compatible patched 1.26.x, Node, pnpm, and Docker Compose for local
 services. Install frontend dependencies before using root targets that include the SPA:
 
 ```bash

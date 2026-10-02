@@ -9,6 +9,10 @@
   npx @redocly/cli preview-docs docs/openapi.yaml
   ```
 
+## Operations
+
+- [`backup-restore.md`](backup-restore.md) — consistent archive backup and isolated restore acceptance checks.
+
 ## Project Guides
 
 - [`../README.md`](../README.md) — Quickstart, environment variables, and architecture overview.

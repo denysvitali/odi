@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ExternalLink, Calendar, Building2, Star, Eye, CheckCircle2, Tag as TagIcon, FileText } from 'lucide-vue-next'
+import {
+  ExternalLink,
+  Calendar,
+  Building2,
+  Star,
+  Eye,
+  CheckCircle2,
+  Tag as TagIcon,
+  FileText
+} from 'lucide-vue-next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import HighlightedText from './HighlightedText.vue'
 import DocTypeBadge from './DocTypeBadge.vue'
-import { api } from '@/api/client'
+import { useDocumentMedia } from '@/composables/useDocumentMedia'
 import { useFavorites } from '@/composables/useFavorites'
 import { useTags } from '@/composables/useTags'
 import type { Document } from '@/types/documents'
@@ -37,15 +46,18 @@ const docUrl = computed(() => {
   return `${props.opensearchUrl}/app/discover#/doc/*/odi-*?id=${encodeURIComponent(props.document._id)}`
 })
 
-const thumbnailUrl = computed(() => api.thumbnailUrl(props.document._id))
-const fullImageUrl = computed(() => api.fileUrl(props.document._id))
+const {
+  thumbnailUrl,
+  error: mediaError,
+  openFile: openDocument
+} = useDocumentMedia(computed(() => props.document._id))
 
 const highlightedText = computed(() => {
   return props.document.highlight?.text?.[0] || props.document._source.text || ''
 })
 
-const extractedTitle = computed(() =>
-  extractTitleFromText(props.document._source.text || '').trim() || 'Untitled Document'
+const extractedTitle = computed(
+  () => extractTitleFromText(props.document._source.text || '').trim() || 'Untitled Document'
 )
 const companyName = computed(() => {
   if (props.document._source.company?.name) return props.document._source.company.name
@@ -70,10 +82,6 @@ const handleImageError = (event: Event) => {
   if (target) target.style.display = 'none'
 }
 
-const openDocument = () => {
-  window.open(fullImageUrl.value, '_blank', 'noopener,noreferrer')
-}
-
 const openInOpensearch = () => {
   window.open(docUrl.value, '_blank', 'noopener,noreferrer')
 }
@@ -93,7 +101,8 @@ const handleCardClick = (e: MouseEvent) => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
-    emit('select', props.document)
+    if (props.selectable) emit('toggleSelect', props.document)
+    else emit('select', props.document)
   } else if (e.key.toLowerCase() === 's') {
     e.preventDefault()
     toggleFav(props.document._id)
@@ -115,10 +124,10 @@ const onToggleStar = (e: MouseEvent) => {
     ]"
     tabindex="0"
     role="button"
-      :aria-label="`Document ${document._id}${cardTitle ? ', ' + cardTitle : ''}${companyName ? ', ' + companyName : ''}`"
-      :aria-pressed="selected"
-      @click="handleCardClick"
-      @keydown="handleKeydown"
+    :aria-label="`Document ${document._id}${cardTitle ? ', ' + cardTitle : ''}${companyName ? ', ' + companyName : ''}`"
+    :aria-pressed="selected"
+    @click="handleCardClick"
+    @keydown="handleKeydown"
   >
     <div v-if="selectable" class="absolute left-2 top-2 z-10">
       <div
@@ -140,8 +149,13 @@ const onToggleStar = (e: MouseEvent) => {
       <Star class="h-4 w-4" :class="starred ? 'fill-current' : ''" aria-hidden="true" />
     </button>
 
+    <p v-if="mediaError" role="alert" class="px-3 py-2 text-xs text-destructive">
+      {{ mediaError }}
+    </p>
+
     <div class="relative aspect-[3/4] overflow-hidden bg-gradient-to-br from-muted to-muted/60">
       <img
+        v-if="thumbnailUrl"
         :src="thumbnailUrl"
         :alt="`Thumbnail for document ${document._id}`"
         class="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
@@ -150,7 +164,9 @@ const onToggleStar = (e: MouseEvent) => {
         @error="handleImageError"
       />
 
-      <div class="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all duration-300 group-hover:bg-black/40 group-hover:opacity-100">
+      <div
+        class="absolute inset-0 flex items-center justify-center gap-2 bg-black/0 opacity-0 transition-all duration-300 group-hover:bg-black/40 group-hover:opacity-100"
+      >
         <Tooltip>
           <TooltipTrigger as-child>
             <Button
@@ -204,10 +220,7 @@ const onToggleStar = (e: MouseEvent) => {
         <span>{{ formatDocId(document._id) }}</span>
       </div>
 
-      <p
-        v-if="highlightedText"
-        class="mt-2 line-clamp-3 text-sm text-muted-foreground"
-      >
+      <p v-if="highlightedText" class="mt-2 line-clamp-3 text-sm text-muted-foreground">
         <HighlightedText :text="highlightedText" />
       </p>
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -63,13 +64,14 @@ type RemoteBackend struct {
 	maxBytes  int
 	idleFlush time.Duration
 
-	mu        sync.Mutex
-	buf       []remotePage
-	bufBytes  int
-	currScan  string
-	flushErr  error
-	closed    bool
-	idleTimer *time.Timer
+	mu              sync.Mutex
+	buf             []remotePage
+	bufBytes        int
+	currScan        string
+	flushErr        error
+	closed          bool
+	idleTimer       *time.Timer
+	timerGeneration uint64
 
 	flushMu sync.Mutex // serializes actual HTTP flushes
 }
@@ -178,27 +180,33 @@ func (r *RemoteBackend) ProcessPage(ctx context.Context, page models.ScannedPage
 
 // Flush forces a synchronous flush of any buffered pages.
 func (r *RemoteBackend) Flush(ctx context.Context) error {
+	r.flushMu.Lock()
+	defer r.flushMu.Unlock()
 	r.mu.Lock()
+	r.timerGeneration++
 	if r.idleTimer != nil {
 		r.idleTimer.Stop()
 		r.idleTimer = nil
 	}
-	if err := r.flushErr; err != nil {
+	var previousErr error
+	if r.flushErr != nil {
+		previousErr = fmt.Errorf("remote backend: previous async flush failed: %w", r.flushErr)
 		r.flushErr = nil
-		r.mu.Unlock()
-		return fmt.Errorf("remote backend: previous async flush failed: %w", err)
 	}
 	toFlush := r.takeBufferLocked()
 	r.mu.Unlock()
 	if len(toFlush) == 0 {
-		return nil
+		return previousErr
 	}
-	return r.flushBatch(ctx, toFlush)
+	return errors.Join(previousErr, r.flushBatchLocked(ctx, toFlush))
 }
 
 // Close stops the idle timer and refuses further pages.
 func (r *RemoteBackend) Close() error {
+	r.flushMu.Lock()
+	defer r.flushMu.Unlock()
 	r.mu.Lock()
+	r.timerGeneration++
 	r.closed = true
 	if r.idleTimer != nil {
 		r.idleTimer.Stop()
@@ -213,9 +221,13 @@ func (r *RemoteBackend) resetIdleTimerLocked(ctx context.Context) {
 	if r.idleTimer != nil {
 		r.idleTimer.Stop()
 	}
+	r.timerGeneration++
+	generation := r.timerGeneration
 	r.idleTimer = time.AfterFunc(r.idleFlush, func() {
+		r.flushMu.Lock()
+		defer r.flushMu.Unlock()
 		r.mu.Lock()
-		if r.closed {
+		if r.closed || generation != r.timerGeneration {
 			r.mu.Unlock()
 			return
 		}
@@ -224,7 +236,7 @@ func (r *RemoteBackend) resetIdleTimerLocked(ctx context.Context) {
 		if len(toFlush) == 0 {
 			return
 		}
-		if err := r.flushBatch(ctx, toFlush); err != nil {
+		if err := r.flushBatchLocked(ctx, toFlush); err != nil {
 			r.mu.Lock()
 			if r.flushErr == nil {
 				r.flushErr = err
@@ -256,6 +268,11 @@ func (r *RemoteBackend) flushBatch(ctx context.Context, pages []remotePage) erro
 	r.flushMu.Lock()
 	defer r.flushMu.Unlock()
 
+	return r.flushBatchLocked(ctx, pages)
+}
+
+// flushBatchLocked requires flushMu to be held until errors are recorded.
+func (r *RemoteBackend) flushBatchLocked(ctx context.Context, pages []remotePage) error {
 	ur, err := r.uploadBatch(ctx, pages)
 	if err != nil {
 		return err
@@ -281,6 +298,17 @@ func (r *RemoteBackend) uploadBatch(ctx context.Context, pages []remotePage) (Up
 	}
 	if err := w.WriteField("sequenceOffset", fmt.Sprintf("%d", pages[0].sequenceID-1)); err != nil {
 		return UploadResponse{}, fmt.Errorf("remote backend: multipart sequenceOffset: %w", err)
+	}
+	sequenceIDs := make([]int, len(pages))
+	for n, p := range pages {
+		sequenceIDs[n] = p.sequenceID
+	}
+	encodedIDs, err := json.Marshal(sequenceIDs)
+	if err != nil {
+		return UploadResponse{}, fmt.Errorf("remote backend: encode sequence IDs: %w", err)
+	}
+	if err := w.WriteField("sequenceIDs", string(encodedIDs)); err != nil {
+		return UploadResponse{}, fmt.Errorf("remote backend: multipart sequence IDs: %w", err)
 	}
 	for _, p := range pages {
 		fw, err := w.CreateFormFile("files", fmt.Sprintf("page-%04d.jpg", p.sequenceID))
@@ -311,8 +339,7 @@ func (r *RemoteBackend) uploadBatch(ctx context.Context, pages []remotePage) (Up
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		buf, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return UploadResponse{}, fmt.Errorf("remote backend: upload failed: HTTP %d: %s", resp.StatusCode, sanitizeForLog(strings.TrimSpace(string(buf))))
+		return UploadResponse{}, fmt.Errorf("remote backend: upload failed: HTTP %d", resp.StatusCode)
 	}
 
 	var ur UploadResponse
@@ -331,8 +358,9 @@ type ReadinessCheck struct {
 
 // ReadinessResponse is the full /readyz payload.
 type ReadinessResponse struct {
-	Ready  bool             `json:"ready"`
-	Checks []ReadinessCheck `json:"checks"`
+	Ready          bool             `json:"ready"`
+	IngestionReady *bool            `json:"ingestionReady,omitempty"`
+	Checks         []ReadinessCheck `json:"checks"`
 }
 
 // Ping verifies the remote server is ready to accept ingestion by calling
@@ -359,6 +387,9 @@ func (r *RemoteBackend) Ping(ctx context.Context) error {
 	_ = json.Unmarshal(body, &ready)
 
 	if resp.StatusCode == http.StatusOK && ready.Ready {
+		if ready.IngestionReady != nil && !*ready.IngestionReady {
+			return fmt.Errorf("remote backend: ingestion is unavailable")
+		}
 		return nil
 	}
 
@@ -366,14 +397,19 @@ func (r *RemoteBackend) Ping(ctx context.Context) error {
 		var failing []string
 		for _, ch := range ready.Checks {
 			if !ch.OK {
-				failing = append(failing, fmt.Sprintf("%s: %s", ch.Name, sanitizeForLog(ch.Detail)))
+				name := "dependency"
+				switch ch.Name {
+				case "opensearch", "indexer", "ocr", "zefix", "storage", "llm":
+					name = ch.Name
+				}
+				failing = append(failing, name)
 			}
 		}
 		if len(failing) > 0 {
 			return fmt.Errorf("remote backend not ready (HTTP %d): %s", resp.StatusCode, strings.Join(failing, "; "))
 		}
 	}
-	return fmt.Errorf("remote backend not ready: HTTP %d: %s", resp.StatusCode, sanitizeForLog(strings.TrimSpace(string(body))))
+	return fmt.Errorf("remote backend not ready: HTTP %d", resp.StatusCode)
 }
 
 // sanitizeForLog redacts anything that looks like a bearer token or an

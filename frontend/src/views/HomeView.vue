@@ -26,13 +26,15 @@ const {
   results,
   loading,
   loadingMore,
+  error,
   total,
   hasSearched,
   activeFilters,
   activeFilterCount,
   search,
   loadMore,
-  clearFilters,
+  clear,
+  clearFilters
 } = useSearch({ debounceMs: 300 })
 
 const { facets, loading: facetsLoading } = useFacets(searchTerm, activeFilters)
@@ -58,12 +60,20 @@ const handleSearch = () => {
       path: '/',
       query: {
         q: searchTerm.value,
-        ...(activeFilters.value.companies?.length ? { companies: activeFilters.value.companies.join(',') } : {}),
+        ...(activeFilters.value.companies?.length
+          ? { companies: activeFilters.value.companies.join(',') }
+          : {}),
         ...(activeFilters.value.dateFrom ? { dateFrom: activeFilters.value.dateFrom } : {}),
         ...(activeFilters.value.dateTo ? { dateTo: activeFilters.value.dateTo } : {}),
-        ...(activeFilters.value.hasBarcode !== undefined ? { hasBarcode: String(activeFilters.value.hasBarcode) } : {}),
+        ...(activeFilters.value.hasBarcode !== undefined
+          ? { hasBarcode: String(activeFilters.value.hasBarcode) }
+          : {}),
         ...(activeFilters.value.titleFilter ? { title: activeFilters.value.titleFilter } : {}),
-      },
+        ...(activeFilters.value.docTypes?.length
+          ? { docTypes: activeFilters.value.docTypes.join(',') }
+          : {}),
+        ...(activeFilters.value.tags?.length ? { tags: activeFilters.value.tags.join(',') } : {})
+      }
     })
   }
 }
@@ -81,8 +91,13 @@ const handleFiltersUpdate = (filters: SearchFiltersType) => {
         ...(filters.dateTo ? { dateTo: filters.dateTo } : {}),
         ...(filters.hasBarcode !== undefined ? { hasBarcode: String(filters.hasBarcode) } : {}),
         ...(filters.titleFilter ? { title: filters.titleFilter } : {}),
-      },
+        ...(filters.docTypes?.length ? { docTypes: filters.docTypes.join(',') } : {}),
+        ...(filters.tags?.length ? { tags: filters.tags.join(',') } : {})
+      }
     })
+  } else {
+    clear()
+    router.replace({ path: '/' })
   }
 }
 
@@ -92,6 +107,10 @@ const handleClearFilters = () => {
 }
 
 const clearHistory = () => store.clearRecentSearches()
+const selectRecentSearch = (term: string) => {
+  searchTerm.value = term
+  handleSearch()
+}
 
 // Parse filters from URL query
 const parseFiltersFromQuery = (): SearchFiltersType => {
@@ -114,31 +133,33 @@ const parseFiltersFromQuery = (): SearchFiltersType => {
     filters.titleFilter = q.title
   }
 
+  if (typeof q.docTypes === 'string') filters.docTypes = q.docTypes.split(',').filter(Boolean)
+  if (typeof q.tags === 'string') filters.tags = q.tags.split(',').filter(Boolean)
   return filters
 }
 
-onMounted(() => {
-  store.loadRecentSearches()
-  const q = route.query.q
-  if (typeof q === 'string' && q.trim()) {
-    searchTerm.value = q
-    const filters = parseFiltersFromQuery()
-    activeFilters.value = filters
-    search(q, filters)
-  }
-})
+onMounted(() => store.loadRecentSearches())
 
 watch(
-  () => route.query.q,
-  (q) => {
-    if (typeof q === 'string' && q !== searchTerm.value) {
-      searchTerm.value = q
-      const filters = parseFiltersFromQuery()
-      activeFilters.value = filters
-      if (q || activeFilterCount.value > 0) search(q, filters)
-    }
-  }
+  () => route.query,
+  () => {
+    const term = typeof route.query.q === 'string' ? route.query.q : ''
+    const filters = parseFiltersFromQuery()
+    if (
+      hasSearched.value &&
+      term === searchTerm.value &&
+      JSON.stringify(filters) === JSON.stringify(activeFilters.value)
+    )
+      return
+    search(term, filters)
+  },
+  { immediate: true }
 )
+
+const handleClearSearch = () => {
+  clear()
+  router.replace({ path: '/' })
+}
 </script>
 
 <template>
@@ -147,13 +168,21 @@ watch(
   >
     <div class="mb-8 text-center">
       <div v-if="!hasSearched" class="relative inline-block">
-        <div class="absolute inset-0 -z-10 bg-gradient-to-br from-primary/30 to-apple-purple/30 blur-3xl" aria-hidden="true" />
-        <div class="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-apple-purple text-primary-foreground shadow-lg">
+        <div
+          class="absolute inset-0 -z-10 bg-gradient-to-br from-primary/30 to-apple-purple/30 blur-3xl"
+          aria-hidden="true"
+        />
+        <div
+          class="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-apple-purple text-primary-foreground shadow-lg"
+        >
           <FileText class="h-8 w-8" aria-hidden="true" />
         </div>
       </div>
 
-      <h1 v-if="!hasSearched" class="mb-2 text-balance text-3xl font-bold tracking-tight sm:text-5xl">
+      <h1
+        v-if="!hasSearched"
+        class="mb-2 text-balance text-3xl font-bold tracking-tight sm:text-5xl"
+      >
         Search your
         <span class="text-gradient">documents</span>
       </h1>
@@ -162,11 +191,7 @@ watch(
         Full-text search across every page you've ever scanned.
       </p>
 
-      <SearchInput
-        v-model="searchTerm"
-        class="mx-auto max-w-2xl"
-        @submit="handleSearch"
-      />
+      <SearchInput v-model="searchTerm" class="mx-auto max-w-2xl" @submit="handleSearch" />
 
       <div v-if="!hasSearched && store.recentSearches.length > 0" class="mt-6">
         <div class="mb-3 flex items-center justify-center gap-3 text-sm text-muted-foreground">
@@ -188,17 +213,21 @@ watch(
             variant="secondary"
             size="sm"
             class="text-muted-foreground"
-            @click="searchTerm = term; handleSearch()"
+            @click="selectRecentSearch(term)"
           >
             {{ term }}
           </Button>
         </div>
       </div>
 
-      <div v-if="!hasSearched" class="mt-10 flex items-center justify-center gap-6 text-xs text-muted-foreground">
+      <div
+        v-if="!hasSearched"
+        class="mt-10 flex items-center justify-center gap-6 text-xs text-muted-foreground"
+      >
         <span class="inline-flex items-center gap-1.5">
           <Sparkles class="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-          Press <kbd class="rounded border bg-background px-1.5 py-0.5 font-medium">?</kbd> for shortcuts
+          Press <kbd class="rounded border bg-background px-1.5 py-0.5 font-medium">?</kbd> for
+          shortcuts
         </span>
       </div>
     </div>
@@ -212,15 +241,14 @@ watch(
             <button
               type="button"
               class="ml-1 rounded-full hover:bg-muted-foreground/20"
+              aria-label="Clear search filters"
               @click="handleClearFilters"
             >
               <X class="h-3 w-3" />
             </button>
           </Badge>
         </div>
-        <Button variant="ghost" size="sm" @click="searchTerm = ''; search('')">
-          Clear
-        </Button>
+        <Button variant="ghost" size="sm" @click="handleClearSearch"> Clear </Button>
       </div>
 
       <div class="flex gap-6">
@@ -236,6 +264,16 @@ watch(
 
         <!-- Results grid -->
         <div class="flex-1 min-w-0">
+          <div
+            v-if="error"
+            role="alert"
+            class="mb-4 rounded-lg border border-destructive/50 p-4 text-destructive"
+          >
+            <p>{{ error }}</p>
+            <Button variant="outline" size="sm" class="mt-2" @click="search(searchTerm)"
+              >Try again</Button
+            >
+          </div>
           <DocumentGrid
             :documents="results"
             :loading="loading"

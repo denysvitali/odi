@@ -284,13 +284,15 @@ func TestRemoteBackend_PingNotReadyReportsFailedChecks(t *testing.T) {
 	require.NoError(t, err)
 	err = b.Ping(context.Background())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "indexer: indexer not configured")
-	assert.Contains(t, err.Error(), "ocr: connection refused")
+	assert.Contains(t, err.Error(), "indexer")
+	assert.Contains(t, err.Error(), "ocr")
+	assert.NotContains(t, err.Error(), "indexer not configured")
+	assert.NotContains(t, err.Error(), "connection refused")
 }
 
 func TestRemoteBackend_FlushServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "nope", http.StatusInternalServerError)
+		http.Error(w, "synthetic confidential document content", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
@@ -306,6 +308,7 @@ func TestRemoteBackend_FlushServerError(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 500")
+	assert.NotContains(t, err.Error(), "synthetic confidential document content")
 }
 
 func TestRemoteBackend_RejectsBadURL(t *testing.T) {
@@ -343,4 +346,77 @@ func TestIngestor_ScanPagesWithRemoteBackend(t *testing.T) {
 	}}
 	require.NoError(t, ing.ScanPages(context.Background(), scanner, 2))
 	assert.Equal(t, 2, processed)
+}
+
+func TestRemoteBackendPreservesExplicitOutOfOrderSequences(t *testing.T) {
+	var ids []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseMultipartForm(1<<20))
+		require.NoError(t, json.Unmarshal([]byte(r.FormValue("sequenceIDs")), &ids))
+		files := r.MultipartForm.File["files"]
+		require.Len(t, files, 3)
+		for n, fh := range files {
+			require.Equal(t, []string{"page-0003.jpg", "page-0001.jpg", "page-0002.jpg"}[n], fh.Filename)
+		}
+		_ = json.NewEncoder(w).Encode(ingestor.UploadResponse{Processed: 3})
+	}))
+	defer srv.Close()
+	b, err := ingestor.NewRemoteBackend(ingestor.RemoteBackendConfig{BaseURL: srv.URL})
+	require.NoError(t, err)
+	defer b.Close()
+	for _, seq := range []int{3, 1, 2} {
+		require.NoError(t, b.ProcessPage(context.Background(), models.ScannedPage{ScanID: "scan", SequenceID: seq, Reader: bytes.NewReader([]byte("synthetic"))}))
+	}
+	require.NoError(t, b.Flush(context.Background()))
+	require.Equal(t, []int{3, 1, 2}, ids)
+}
+
+func TestRemoteBackendFlushWaitsForActiveIdleUploadAndReportsFailure(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	b, err := ingestor.NewRemoteBackend(ingestor.RemoteBackendConfig{BaseURL: srv.URL, BatchIdleFlush: time.Millisecond})
+	require.NoError(t, err)
+	require.NoError(t, b.ProcessPage(context.Background(), models.ScannedPage{ScanID: "scan", SequenceID: 1, Reader: bytes.NewReader([]byte("synthetic"))}))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("idle upload did not start")
+	}
+	result := make(chan error, 1)
+	go func() { result <- b.Flush(context.Background()) }()
+	select {
+	case err := <-result:
+		t.Fatalf("Flush returned before upload finished: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "HTTP 503")
+	case <-time.After(time.Second):
+		t.Fatal("Flush did not finish")
+	}
+}
+
+func TestRemoteBackendRejectsReadOnlyServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ready":true,"ingestionReady":false,"checks":[]}`)
+	}))
+	defer srv.Close()
+	backend, err := ingestor.NewRemoteBackend(ingestor.RemoteBackendConfig{BaseURL: srv.URL})
+	require.NoError(t, err)
+	require.EqualError(t, backend.Ping(context.Background()), "remote backend: ingestion is unavailable")
 }

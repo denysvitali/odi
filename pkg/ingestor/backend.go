@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -82,7 +83,7 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 			ContentDigest: page.ContentDigest,
 		})
 		if err != nil {
-			if releaseErr := b.idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+			if releaseErr := b.releaseContentDigest(ctx, page); releaseErr != nil {
 				log.Warnf("scan=%s seq=%d: unable to release content digest after storage failure: %v", page.ScanID, page.SequenceID, releaseErr)
 			}
 			return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
@@ -91,22 +92,18 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 
 	page.Reader = bytes.NewReader(pageData)
 	if err := b.idx.Index(ctx, page); err != nil {
-		// Indexing failed after storage succeeded. The blob is now orphaned in
-		// storage: written, but not searchable. Try to roll back.
-		//
-		// TODO: the storage.Storer interface does not currently expose Delete.
-		// Until it does, we cannot reclaim the orphaned blob automatically.
-		// Log loudly with event=orphan_blob so an operator can reconcile.
-		log.WithFields(logrus.Fields{
-			"event":      "orphan_blob",
-			"scanID":     page.ScanID,
-			"sequenceID": page.SequenceID,
-			"digest":     page.ContentDigest,
-			"indexErr":   err.Error(),
-			"deleteErr":  "storage.Storer has no Delete method; manual cleanup required",
-		}).Error("blob stored but indexing failed; orphan in storage")
+		// Retain any stored blob for reindex recovery. An index request can
+		// commit before its response is lost, so deleting here is unsafe.
+		if b.storage != nil {
+			log.WithFields(logrus.Fields{
+				"event":      "orphan_blob",
+				"scanID":     page.ScanID,
+				"sequenceID": page.SequenceID,
+				"digest":     page.ContentDigest,
+			}).Error("indexing failed; blob retained for reindex recovery")
+		}
 
-		if releaseErr := b.idx.ReleaseContentDigest(ctx, page.ContentDigest, page.ID()); releaseErr != nil {
+		if releaseErr := b.releaseContentDigest(ctx, page); releaseErr != nil {
 			log.WithFields(logrus.Fields{
 				"event":      "orphan_blob",
 				"scanID":     page.ScanID,
@@ -118,6 +115,13 @@ func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage)
 		return fmt.Errorf("index page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
 	}
 	return nil
+}
+
+// Cleanup must still run when the operation failed because its context was canceled.
+func (b *LocalBackend) releaseContentDigest(ctx context.Context, page models.ScannedPage) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	return b.idx.ReleaseContentDigest(cleanupCtx, page.ContentDigest, page.ID())
 }
 
 func (b *LocalBackend) Flush(_ context.Context) error { return nil }

@@ -16,6 +16,12 @@ type Client struct {
 	transport *http.Transport
 }
 
+// HTTPTransport returns a clone so OCR clients can add their destination policy
+// without modifying this CA transport or losing its TLS trust configuration.
+func (c Client) HTTPTransport() *http.Transport {
+	return c.transport.Clone()
+}
+
 func (c Client) RoundTrip(request *http.Request) (*http.Response, error) {
 	return c.transport.RoundTrip(request)
 }
@@ -36,6 +42,9 @@ func New(caPath string) (*Client, error) {
 	}
 	block, rest := pem.Decode(caBytes)
 
+	if block == nil {
+		return nil, fmt.Errorf("invalid CA PEM: certificate block missing")
+	}
 	if block.Type != "CERTIFICATE" {
 		return nil, fmt.Errorf("invalid pem block type %s, expected CERTIFICATE", block.Type)
 	}

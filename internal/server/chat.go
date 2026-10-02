@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
@@ -51,41 +49,6 @@ type chatSearchResponse struct {
 	} `json:"hits"`
 }
 
-// llmClientOnce lazily constructs the chat LLM client from the LLM_API_ADDR
-// (or LLM_ADDR) environment variable. We cache it here on package-level state
-// to avoid editing the shared Server struct in server.go.
-var (
-	llmClientOnce sync.Once
-	llmClient     *llm.Client
-	llmClientErr  error
-)
-
-// chatLLMAddr resolves the configured LLM base URL, mirroring the env vars
-// consumed by the CLI (LLM_API_ADDR), with LLM_ADDR accepted as an alias.
-func chatLLMAddr() string {
-	if v := strings.TrimSpace(os.Getenv("LLM_API_ADDR")); v != "" {
-		return v
-	}
-	return strings.TrimSpace(os.Getenv("LLM_ADDR"))
-}
-
-// getChatLLMClient returns a cached LLM client, or nil when no LLM address is
-// configured.
-func getChatLLMClient() (*llm.Client, error) {
-	llmClientOnce.Do(func() {
-		addr := chatLLMAddr()
-		if addr == "" {
-			return
-		}
-		opts := []llm.Option{}
-		if model := strings.TrimSpace(os.Getenv("LLM_MODEL")); model != "" {
-			opts = append(opts, llm.WithModel(model))
-		}
-		llmClient, llmClientErr = llm.New(addr, opts...)
-	})
-	return llmClient, llmClientErr
-}
-
 func (s *Server) handleChat(c *gin.Context) {
 	var req ChatRequest
 	if err := c.BindJSON(&req); err != nil {
@@ -98,12 +61,7 @@ func (s *Server) handleChat(c *gin.Context) {
 		return
 	}
 
-	client, err := getChatLLMClient()
-	if err != nil {
-		log.Errorf("unable to build chat LLM client: %v", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat not configured"})
-		return
-	}
+	client := s.llmClient
 	if client == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat not configured"})
 		return
@@ -111,7 +69,7 @@ func (s *Server) handleChat(c *gin.Context) {
 
 	passages, err := s.chatPassages(c, req)
 	if err != nil {
-		log.Errorf("unable to gather chat passages (question=%q): %v", req.Question, err)
+		log.Error("unable to gather chat passages")
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -126,7 +84,7 @@ func (s *Server) handleChat(c *gin.Context) {
 
 	answer, err := client.Answer(c.Request.Context(), req.Question, passages)
 	if err != nil {
-		log.Errorf("unable to generate chat answer (question=%q): %v", req.Question, err)
+		log.Errorf("unable to generate chat answer: %v", err)
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}

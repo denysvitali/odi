@@ -60,6 +60,11 @@ type Option func(*Indexer)
 var log = logrus.StandardLogger().WithField("package", "indexer")
 
 func New(opensearchAddr string, ocrAPIAddr string, zefixDsn string, opts ...Option) (*Indexer, error) {
+	return NewWithContext(context.Background(), opensearchAddr, ocrAPIAddr, zefixDsn, opts...)
+}
+
+// NewWithContext bounds initialization I/O with the caller's cancellation deadline.
+func NewWithContext(ctx context.Context, opensearchAddr string, ocrAPIAddr string, zefixDsn string, opts ...Option) (*Indexer, error) {
 	idx := &Indexer{
 		opensearchAddr:     opensearchAddr,
 		ocrAPIAddr:         ocrAPIAddr,
@@ -71,19 +76,26 @@ func New(opensearchAddr string, ocrAPIAddr string, zefixDsn string, opts ...Opti
 	for _, opt := range opts {
 		opt(idx)
 	}
-	if err := idx.init(); err != nil {
+	if err := idx.init(ctx); err != nil {
+		if idx.zefixProcessor != nil {
+			_ = idx.zefixProcessor.Close()
+		}
 		return nil, fmt.Errorf("init indexer: %w", err)
 	}
 	return idx, nil
 }
 
 func (i *Indexer) PingOcrApi() (bool, error) {
-	err := i.ensureOcrApiClient()
+	return i.PingOcrApiContext(context.Background())
+}
+
+func (i *Indexer) PingOcrApiContext(ctx context.Context) (bool, error) {
+	err := i.ensureOcrApiClientContext(ctx)
 	if err != nil {
 		return false, fmt.Errorf("ensure OCR API client: %w", err)
 	}
 
-	return i.ocrClient.Healthz()
+	return i.ocrClient.HealthzContext(ctx)
 }
 
 func (i *Indexer) PingOpensearch(ctx context.Context) (*opensearch.Response, error) {
@@ -120,13 +132,13 @@ func (i *Indexer) ensureOpensearchClient() error {
 	return nil
 }
 
-func (i *Indexer) ensureOcrApiClient() error {
+func (i *Indexer) ensureOcrApiClientContext(ctx context.Context) error {
 	if i.ocrClient != nil {
 		return nil
 	}
 
 	var err error
-	i.ocrClient, err = ocrclient.New(i.ocrAPIAddr)
+	i.ocrClient, err = ocrclient.NewWithContext(ctx, i.ocrAPIAddr)
 	if err != nil {
 		return fmt.Errorf("create OCR client: %w", err)
 	}
@@ -136,13 +148,15 @@ func (i *Indexer) ensureOcrApiClient() error {
 		if err != nil {
 			return fmt.Errorf("create CA round tripper: %w", err)
 		}
-		i.ocrClient.SetHTTPTransport(caRoundTripper)
+		if err := i.ocrClient.SetHTTPTransport(caRoundTripper); err != nil {
+			return fmt.Errorf("configure OCR CA transport: %w", err)
+		}
 	}
 	return nil
 }
 
-func (i *Indexer) init() error {
-	err := i.ensureOcrApiClient()
+func (i *Indexer) init(ctx context.Context) error {
+	err := i.ensureOcrApiClientContext(ctx)
 	if err != nil {
 		return fmt.Errorf("ocr client: %w", err)
 	}
@@ -151,23 +165,23 @@ func (i *Indexer) init() error {
 		return fmt.Errorf("opensearchClient: %w", err)
 	}
 
-	err = i.ensureZefixClient()
+	err = i.ensureZefixClientContext(ctx)
 	if err != nil {
 		return fmt.Errorf("zefix client: %w", err)
 	}
 
 	// Create OpenSearch index
-	err = i.createOpensearchIndex(context.Background())
+	err = i.createOpensearchIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to create opensearch index: %w", err)
 	}
-	err = i.createContentDigestIndex(context.Background())
+	err = i.createContentDigestIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to create content digest index: %w", err)
 	}
 
 	// Check if API ping works
-	h, err := i.ocrClient.Healthz()
+	h, err := i.ocrClient.HealthzContext(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to ping OCR API: %w", err)
 	}
@@ -207,7 +221,7 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 			log.WithError(err).Debug("LLM metadata extraction failed, continuing without it")
 		} else {
 			llmMeta = meta
-			log.Debugf("LLM extracted title=%q company=%q", llmMeta.Title, llmMeta.Company)
+			log.Debug("LLM metadata extracted")
 		}
 
 		// Best-effort document-type classification + tags. Summary is generated
@@ -217,7 +231,7 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 			log.WithError(err).Debug("LLM classification failed, continuing without it")
 		} else {
 			llmClass = class
-			log.Debugf("LLM classified docType=%q tags=%v", llmClass.DocType, llmClass.Tags)
+			log.Debug("LLM classification completed")
 		}
 	}
 
@@ -290,23 +304,23 @@ func (i *Indexer) Index(ctx context.Context, page models.ScannedPage) error {
 	return nil
 }
 
+// decodeError retains only recognized structural error categories. OpenSearch
+// reasons may contain OCR text, indexed metadata or caller search expressions.
 func decodeError(body io.ReadCloser) string {
-	var errorMessage struct {
-		Error json.RawMessage `json:"error"`
+	var response struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
 	}
-	dec := json.NewDecoder(body)
-	if err := dec.Decode(&errorMessage); err != nil {
-		return fmt.Sprintf("failed to decode error: %v", err)
+	if err := json.NewDecoder(io.LimitReader(body, 64*1024)).Decode(&response); err != nil {
+		return "OpenSearch returned an unrecognized error"
 	}
-	if len(errorMessage.Error) == 0 {
-		return ""
+	switch response.Error.Type {
+	case "resource_already_exists_exception", "invalid_alias_name_exception", "index_not_found_exception", "version_conflict_engine_exception", "mapper_parsing_exception", "security_exception":
+		return response.Error.Type
+	default:
+		return "OpenSearch request failed"
 	}
-
-	var plain string
-	if err := json.Unmarshal(errorMessage.Error, &plain); err == nil {
-		return plain
-	}
-	return string(errorMessage.Error)
 }
 
 // Given the result of the OCR, return the most likely date of the document
@@ -397,8 +411,7 @@ func (i *Indexer) createIndex(ctx context.Context, name string, body io.Reader) 
 	}
 	if statusCode == http.StatusBadRequest {
 		errorMessage := decodeError(resp.Inspect().Response.Body)
-		if strings.Contains(errorMessage, "resource_already_exists_exception") ||
-			strings.Contains(errorMessage, "already exists as alias") {
+		if errorMessage == "resource_already_exists_exception" {
 			return nil
 		}
 		return fmt.Errorf("create index %s returned %s: %s", name, resp.Inspect().Response.Status(), errorMessage)
@@ -428,9 +441,9 @@ func (i *Indexer) opensearchTargetExists(ctx context.Context, name string) (bool
 	return true, nil
 }
 
-func (i *Indexer) ensureZefixClient() error {
+func (i *Indexer) ensureZefixClientContext(ctx context.Context) error {
 	var err error
-	i.zefixProcessor, err = zefix.New(i.zefixDsn)
+	i.zefixProcessor, err = zefix.NewWithContext(ctx, i.zefixDsn)
 	if err != nil {
 		return fmt.Errorf("create zefix client: %w", err)
 	}
@@ -438,10 +451,14 @@ func (i *Indexer) ensureZefixClient() error {
 }
 
 func (i *Indexer) PingZefix() error {
+	return i.PingZefixContext(context.Background())
+}
+
+func (i *Indexer) PingZefixContext(ctx context.Context) error {
 	if zefix.IsDisabledDSN(i.zefixDsn) {
 		return nil
 	}
-	return i.zefixProcessor.Ping()
+	return i.zefixProcessor.PingContext(ctx)
 }
 
 func (i *Indexer) IsZefixConfigured() bool {

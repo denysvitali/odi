@@ -1,17 +1,17 @@
 # Build stage
-FROM node:lts-alpine AS builder
+FROM node:24.21.0-alpine AS builder
 
 # Install pnpm (align with CI version)
-RUN npm i -g pnpm@10
+RUN npm i -g pnpm@11.10.0
 
 WORKDIR /app
 
 # Copy only package files for caching
 COPY package*.json ./
-COPY pnpm-lock.yaml ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Copy source code
 COPY . .

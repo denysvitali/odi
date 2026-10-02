@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/denysvitali/odi/pkg/indexer"
+	"github.com/denysvitali/odi/pkg/llm"
 	"github.com/denysvitali/odi/pkg/storage/model"
 )
 
@@ -41,6 +42,7 @@ type Server struct {
 	osClient             *opensearchapi.Client
 	storage              model.RWStorage
 	indexer              *indexer.Indexer
+	llmClient            *llm.Client
 	thumbnailProcessMu   sync.Mutex
 	reindexProcessMu     sync.Mutex
 	reindexStatusMu      sync.Mutex
@@ -68,7 +70,6 @@ func logStreamError(c *gin.Context, err error, msg string) {
 	}
 	log.WithFields(logrus.Fields{
 		"request_id": RequestIDFromContext(c.Request.Context()),
-		"path":       c.Request.URL.Path,
 		"route":      c.FullPath(),
 		"status":     c.Writer.Status(),
 		"method":     c.Request.Method,
@@ -76,6 +77,11 @@ func logStreamError(c *gin.Context, err error, msg string) {
 }
 
 type ServerOption func(*Server)
+
+// WithLLMClient shares explicit CLI configuration with chat and summary handlers.
+func WithLLMClient(client *llm.Client) ServerOption {
+	return func(s *Server) { s.llmClient = client }
+}
 
 func WithIndexer(idx *indexer.Indexer) ServerOption {
 	return func(s *Server) {
@@ -102,6 +108,11 @@ func WithTLS(certPath, keyPath string) ServerOption {
 }
 
 func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVerify bool, osIndex string, storage model.RWStorage, opts ...ServerOption) (*Server, error) {
+	return NewWithContext(context.Background(), osAddr, osUsername, osPassword, osInsecureSkipVerify, osIndex, storage, opts...)
+}
+
+// NewWithContext bounds startup dependency checks by the caller context.
+func NewWithContext(ctx context.Context, osAddr string, osUsername string, osPassword string, osInsecureSkipVerify bool, osIndex string, storage model.RWStorage, opts ...ServerOption) (*Server, error) {
 	u, err := url.Parse(osAddr)
 	if err != nil {
 		return nil, fmt.Errorf("parse OpenSearch address %q: %w", osAddr, err)
@@ -147,7 +158,7 @@ func New(osAddr string, osUsername string, osPassword string, osInsecureSkipVeri
 	}
 	s.osClient = c
 
-	err = s.verifyOpensearch(context.Background(), osIndex)
+	err = s.verifyOpensearch(ctx, osIndex)
 	if err != nil {
 		return nil, fmt.Errorf("verify OpenSearch index %s: %w", osIndex, err)
 	}
@@ -246,6 +257,10 @@ func (s *Server) initRoutes() {
 	// Request ID must run before any other middleware that wants to log it.
 	s.e.Use(requestIDMiddleware())
 	s.e.Use(metricsMiddleware())
+	s.e.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), routeContextKey{}, c.FullPath()))
+		c.Next()
+	})
 	s.e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipPaths: []string{"/healthz", "/readyz", "/metrics"},
 		Formatter: func(p gin.LogFormatterParams) string {
@@ -254,7 +269,7 @@ func (s *Server) initRoutes() {
 				"package":    "server",
 				"request_id": reqID,
 				"method":     p.Method,
-				"path":       p.Path,
+				"route":      requestRoute(p.Request),
 				"status":     p.StatusCode,
 				"latency":    p.Latency.String(),
 				"client_ip":  p.ClientIP,
@@ -265,7 +280,7 @@ func (s *Server) initRoutes() {
 	s.e.Use(cors.New(cors.Config{
 		AllowOrigins:     corsOrigins(),
 		AllowMethods:     []string{"GET", "POST", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Share-Passphrase"},
 		AllowCredentials: false,
 	}))
 
@@ -283,6 +298,10 @@ func (s *Server) initRoutes() {
 	g.POST("/search", s.handleSearch)
 	g.POST("/search/facets", s.handleSearchFacets)
 	g.GET("/documents/:id", s.handleGetDocument)
+	g.GET("/documents/:id/similar", s.handleSimilarDocuments)
+	g.GET("/reminders", s.handleReminders)
+	g.GET("/insights", s.handleInsights)
+	g.GET("/insights.csv", s.handleInsightsCSV)
 	g.GET("/documents", s.handleGetDocuments)
 	g.GET("/files/:scanID/:sequenceId", s.handleGetFile)
 	g.GET("/thumbnails/:id", s.handleGetThumbnail)
@@ -299,6 +318,9 @@ func (s *Server) initRoutes() {
 
 func (s *Server) pingOs(ctx context.Context) error {
 	res, err := s.osClient.Ping(ctx, &opensearchapi.PingReq{})
+	if res != nil && res.Body != nil {
+		defer func() { _ = res.Body.Close() }()
+	}
 	if err != nil {
 		return fmt.Errorf("ping OpenSearch: %w", err)
 	}
@@ -310,14 +332,15 @@ func (s *Server) pingOs(ctx context.Context) error {
 
 func (s *Server) verifyIndex(ctx context.Context, index string) error {
 	resp, err := s.osClient.Indices.Exists(ctx, opensearchapi.IndicesExistsReq{Indices: []string{index}})
+	if resp != nil && resp.Body != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("index or alias %s not found", index)
 		}
 		return fmt.Errorf("check index or alias %s: %w", index, err)
 	}
-	defer resp.Body.Close()
-
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("index or alias %s not found", index)
 	}
@@ -325,4 +348,14 @@ func (s *Server) verifyIndex(ctx context.Context, index string) error {
 		return fmt.Errorf("unable to verify index or alias %s: %s", index, resp.Status())
 	}
 	return nil
+}
+
+// routeContextKey keeps access logs free of document IDs, query strings and share tokens.
+type routeContextKey struct{}
+
+func requestRoute(r *http.Request) string {
+	if route, ok := r.Context().Value(routeContextKey{}).(string); ok && route != "" {
+		return route
+	}
+	return "unmatched"
 }

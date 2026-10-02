@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onScopeDispose, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CalendarDays, RefreshCw, X, CheckSquare, Download, Star, Tag as TagIcon } from 'lucide-vue-next'
+import {
+  CalendarDays,
+  RefreshCw,
+  X,
+  CheckSquare,
+  Download,
+  Star,
+  Tag as TagIcon
+} from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import DocumentGrid from '@/components/documents/DocumentGrid.vue'
 import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
 import PageContainer from '@/components/layout/PageContainer.vue'
@@ -12,6 +19,8 @@ import { useDocuments } from '@/composables/useDocuments'
 import { useInfiniteScroll } from '@/composables/useInfiniteScroll'
 import { useSelection } from '@/composables/useSelection'
 import { useTags } from '@/composables/useTags'
+import { api } from '@/api/client'
+import { errorMessage } from '@/lib/utils'
 import { getOpensearchUrl } from '@/lib/config'
 import { formatNumber } from '@/lib/format'
 import { extractTitleFromText } from '@/lib/documentMetadata'
@@ -37,6 +46,8 @@ const opensearchUrl = computed(() => getOpensearchUrl())
 const selectedDocument = ref<Document | null>(null)
 const sheetOpen = ref(false)
 const filtersOpen = ref(false)
+const deepLinkError = ref<string | null>(null)
+let deepLinkGeneration = 0
 
 const dateFrom = ref('')
 const dateTo = ref('')
@@ -45,9 +56,7 @@ const tagFilter = ref('')
 const { allTags, getTags } = useTags()
 const selection = useSelection()
 
-const hasActiveFilters = computed(
-  () => Boolean(dateFrom.value || dateTo.value || tagFilter.value)
-)
+const hasActiveFilters = computed(() => Boolean(dateFrom.value || dateTo.value || tagFilter.value))
 
 const visibleDocuments = computed(() => {
   if (!tagFilter.value) return documents.value
@@ -58,6 +67,7 @@ const applyDateFilter = () => {
   if (!dateFrom.value && !dateTo.value) dateRange.value = null
   else dateRange.value = { from: dateFrom.value, to: dateTo.value }
   filtersOpen.value = false
+  refresh()
 }
 
 const clearFilters = () => {
@@ -65,6 +75,7 @@ const clearFilters = () => {
   dateTo.value = ''
   tagFilter.value = ''
   dateRange.value = null
+  refresh()
 }
 
 const handleSelectDocument = (doc: Document) => {
@@ -74,7 +85,7 @@ const handleSelectDocument = (doc: Document) => {
   }
   selectedDocument.value = doc
   sheetOpen.value = true
-  router.replace({ path: `/documents/${doc._id}` })
+  router.replace({ path: `/documents/${encodeURIComponent(doc._id)}` })
 }
 
 const handleToggleSelect = (doc: Document) => {
@@ -86,7 +97,7 @@ const selectAllVisible = () => selection.selectAll(visibleDocuments.value.map((d
 
 const exportCSV = () => {
   const rows = visibleDocuments.value
-      .filter((d) => selection.selected.value.has(d._id) || !selection.active.value)
+    .filter((d) => selection.selected.value.has(d._id) || !selection.active.value)
     .map((d) => ({
       id: d._id,
       title: d._source.title || extractTitleFromText(d._source.text || ''),
@@ -122,27 +133,43 @@ const { targetRef } = useInfiniteScroll(() => {
   if (!loading.value && !loadingMore.value && hasMore.value) loadMore()
 })
 
-// Deep-link: /documents/:id opens the sheet
-const openDocIdFromRoute = () => {
+// Deep links resolve their document even when it is outside the loaded listing page.
+const openDocIdFromRoute = async () => {
+  const current = ++deepLinkGeneration
   const id = route.params.id
-  if (typeof id === 'string' && id) {
-    const doc = documents.value.find((d) => d._id === id)
-    if (doc) {
-      selectedDocument.value = doc
-      sheetOpen.value = true
+  deepLinkError.value = null
+  selectedDocument.value = null
+  sheetOpen.value = false
+  if (typeof id !== 'string' || !id) {
+    sheetOpen.value = false
+    return
+  }
+  try {
+    let doc = documents.value.find((d) => d._id === id)
+    if (!doc) {
+      const details = await api.getDocumentDetails(id)
+      doc = {
+        _id: id,
+        _source: { ...details, date: details.primaryDate, text: details.text || '' }
+      }
     }
+    if (current !== deepLinkGeneration) return
+    selectedDocument.value = doc
+    sheetOpen.value = true
+  } catch (err) {
+    if (current === deepLinkGeneration)
+      deepLinkError.value = errorMessage(err, 'Unable to open document')
   }
 }
 
 watch(sheetOpen, (v) => {
-  if (!v && route.params.id) router.replace({ path: '/documents' })
+  if (!v && route.params.id && selectedDocument.value) router.replace({ path: '/documents' })
 })
 
-watch(documents, () => openDocIdFromRoute())
-
-onMounted(async () => {
-  await loadDocuments()
-  openDocIdFromRoute()
+watch(() => route.params.id, openDocIdFromRoute, { immediate: true })
+onMounted(loadDocuments)
+onScopeDispose(() => {
+  deepLinkGeneration++
 })
 </script>
 
@@ -182,7 +209,11 @@ onMounted(async () => {
             Filters
           </Button>
           <Button variant="outline" size="sm" :disabled="loading" @click="refresh">
-            <RefreshCw class="mr-2 h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />
+            <RefreshCw
+              class="mr-2 h-4 w-4"
+              :class="{ 'animate-spin': loading }"
+              aria-hidden="true"
+            />
             Refresh
           </Button>
         </div>
@@ -204,15 +235,17 @@ onMounted(async () => {
         <div v-if="allTags.length" class="grid gap-1.5 text-sm font-medium">
           <span class="flex items-center gap-1"><TagIcon class="h-3.5 w-3.5" /> Tag</span>
           <div class="flex flex-wrap gap-1">
-            <Badge
+            <button
               v-for="t in allTags"
               :key="t"
-              :variant="tagFilter === t ? 'default' : 'outline'"
-              class="cursor-pointer"
+              type="button"
+              :aria-pressed="tagFilter === t"
+              class="rounded-full border px-2.5 py-0.5 text-xs focus-visible:outline focus-visible:outline-2"
+              :class="tagFilter === t ? 'bg-primary text-primary-foreground' : 'bg-background'"
               @click="tagFilter = tagFilter === t ? '' : t"
             >
               {{ t }}
-            </Badge>
+            </button>
           </div>
         </div>
 
@@ -230,7 +263,11 @@ onMounted(async () => {
         class="flex flex-wrap items-center gap-3 rounded-lg border bg-primary/5 p-3 text-sm"
       >
         <span class="font-medium">
-          <Star v-if="selection.count.value === 0" class="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+          <Star
+            v-if="selection.count.value === 0"
+            class="mr-1 inline h-3.5 w-3.5"
+            aria-hidden="true"
+          />
           {{ selection.count.value }} selected
         </span>
         <Button size="sm" variant="ghost" @click="selectAllVisible">Select all visible</Button>
@@ -241,6 +278,8 @@ onMounted(async () => {
           Export selected
         </Button>
       </div>
+
+      <p v-if="deepLinkError" role="alert" class="text-destructive">{{ deepLinkError }}</p>
 
       <div
         v-if="error"
@@ -253,7 +292,9 @@ onMounted(async () => {
       <div v-if="!error" class="flex items-center justify-between">
         <div class="text-sm text-muted-foreground">
           <span v-if="loading" class="flex items-center gap-2">
-            <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <div
+              class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+            />
             Loading documents…
           </span>
           <span v-else-if="total > 0">

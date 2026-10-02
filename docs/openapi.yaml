@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: ODI API
   description: |
-    REST API for the ODI (Optical Document Indexer) service.
+    REST API for the ODI (Open Document Indexer) service.
     Provides document upload, OCR, indexing, search, and retrieval.
   version: 0.1.0
   contact:
@@ -10,7 +10,7 @@ info:
     url: https://github.com/denysvitali/odi
 
 servers:
-  - url: http://localhost:8080
+  - url: http://127.0.0.1:8085
     description: Local development server
 
 security:
@@ -33,7 +33,7 @@ paths:
   /readyz:
     get:
       summary: Readiness probe
-      description: Returns 200 when all dependencies (OpenSearch, OCR, optional LLM, and Zefix when configured) are reachable.
+      description: Returns 200 when OpenSearch and configured ingestion dependencies are healthy. Read-only deployments do not require OCR; optional LLM enrichment does not gate readiness. Public checks contain generic status only.
       security: []
       responses:
         "200":
@@ -41,13 +41,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                $ref: "#/components/schemas/ReadyResponse"
         "503":
           description: One or more dependencies unhealthy
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ReadyResponse"
 
   /metrics:
     get:
@@ -245,8 +245,8 @@ paths:
 
   /api/v1/admin/reindex:
     get:
-      summary: Get B2 reindex status
-      description: Returns the current or most recent in-memory B2 reindex job status.
+      summary: Get reindex status
+      description: Returns the current or most recent in-memory reindex job status.
       responses:
         "200":
           description: Reindex status
@@ -255,7 +255,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ReindexStatus"
     post:
-      summary: Start B2 reindex
+      summary: Start reindex
       description: Starts a background job that reprocesses stored pages and rebuilds OpenSearch entries.
       responses:
         "202":
@@ -283,7 +283,7 @@ paths:
       description: |
         Accepts a multipart/form-data upload of images or PDFs.
         Each file is stored, OCR'd, and indexed.
-        Maximum total request size is 200 MB.
+        Maximum total request size is 200 MB. Optional sequenceIDs preserves source page identifiers for remote ingestion; omitted identifiers use sequenceOffset and one-based sequential numbering.
       requestBody:
         required: true
         content:
@@ -297,6 +297,17 @@ paths:
                     type: string
                     format: binary
                   description: One or more image or PDF files
+                sequenceIDs:
+                  type: string
+                  description: JSON array of distinct positive page identifiers, one per file (for example "[1,3]").
+                sequenceOffset:
+                  type: integer
+                  minimum: 0
+                  description: Legacy offset used only when sequenceIDs is omitted.
+                scanID:
+                  type: string
+                  format: uuid
+                  description: Optional source scan identifier; generated when omitted.
       responses:
         "200":
           description: Upload processed
@@ -334,6 +345,501 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/search/facets:
+    post:
+      summary: Aggregate search filter facets
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  aggregations:
+                    type: object
+                  hits:
+                    type: object
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+  /api/v1/reminders:
+    get:
+      summary: List upcoming document deadlines
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemindersResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: days
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          default: 90
+  /api/v1/insights:
+    get:
+      summary: Aggregate document amounts
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsightsResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: year
+        in: query
+        schema:
+          type: integer
+      - name: date_from
+        in: query
+        schema:
+          type: string
+      - name: date_to
+        in: query
+        schema:
+          type: string
+  /api/v1/insights.csv:
+    get:
+      summary: Export amount aggregates as CSV
+      responses:
+        '200':
+          description: CSV amount aggregates
+          content:
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: year
+        in: query
+        schema:
+          type: integer
+      - name: date_from
+        in: query
+        schema:
+          type: string
+      - name: date_to
+        in: query
+        schema:
+          type: string
+  /api/v1/documents/{id}/similar:
+    get:
+      summary: Find related documents
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SimilarDocument'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document or share not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/v1/documents/{id}/summary:
+    post:
+      summary: Generate or retrieve a cached local LLM summary
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                  keyFacts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/KeyFact'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Optional feature is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document or share not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/v1/chat:
+    post:
+      summary: Ask the local LLM about matching documents
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer:
+                    type: string
+                  citations:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Optional feature is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question:
+                  type: string
+                companies:
+                  type: array
+                  items:
+                    type: string
+                dateFrom:
+                  type: string
+                dateTo:
+                  type: string
+                hasBarcode:
+                  type: boolean
+                title:
+                  type: string
+              required:
+              - question
+  /api/v1/shares:
+    get:
+      summary: List active document share links
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shares:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Share'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Optional feature is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Create an expiring document share link
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  urlSuffix:
+                    type: string
+                  expiresAt:
+                    type: integer
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Optional feature is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scanID:
+                  type: string
+                sequenceID:
+                  type: integer
+                  minimum: 1
+                expiresInHours:
+                  type: integer
+                  default: 24
+                maxViews:
+                  type: integer
+                  minimum: 0
+                passphrase:
+                  type: string
+                  writeOnly: true
+              required:
+              - scanID
+              - sequenceID
+  /api/v1/shares/{token}:
+    delete:
+      summary: Revoke a document share link
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Dependency or processing failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Document or share not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+  /share/{token}:
+    get:
+      summary: Retrieve a document using a signed share token
+      security: []
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: X-Share-Passphrase
+        in: header
+        schema:
+          type: string
+          writeOnly: true
+        description: Required when the share has a passphrase. Query-string passphrases
+          are not accepted.
+      responses:
+        '200':
+          description: Shared document
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Passphrase required or incorrect
+        '404':
+          description: Share unavailable, expired, revoked, or exhausted
 
 components:
   securitySchemes:
@@ -522,3 +1028,122 @@ components:
           type: string
         error:
           type: string
+
+    ReadyResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+        ingestionReady:
+          type: boolean
+          description: Whether ingestion is configured and its dependencies are ready.
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              ok:
+                type: boolean
+              detail:
+                type: string
+            required:
+            - name
+            - ok
+      required:
+      - ready
+      - checks
+    KeyFact:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+    Reminder:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        dueDate:
+          type: string
+        docType:
+          type: string
+        company:
+          type: string
+        amountDue:
+          type: string
+    RemindersResponse:
+      type: object
+      properties:
+        reminders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Reminder'
+        days:
+          type: integer
+    SimilarDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        date:
+          type: string
+        docType:
+          type: string
+        company:
+          type: string
+    InsightBucket:
+      type: object
+      properties:
+        name:
+          type: string
+        total:
+          type: number
+        count:
+          type: integer
+    InsightsResponse:
+      type: object
+      properties:
+        byCompany:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsightBucket'
+        byYear:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsightBucket'
+        byDocType:
+          type: array
+          items:
+            $ref: '#/components/schemas/InsightBucket'
+        currency:
+          type: string
+        total:
+          type: number
+        count:
+          type: integer
+    Share:
+      type: object
+      properties:
+        token:
+          type: string
+        scanID:
+          type: string
+        sequenceID:
+          type: integer
+        expiresAt:
+          type: integer
+        maxViews:
+          type: integer
+        viewCount:
+          type: integer
+        createdAt:
+          type: integer
+        hasPassphrase:
+          type: boolean

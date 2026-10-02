@@ -14,13 +14,14 @@ type readyCheck struct {
 }
 
 type readyResponse struct {
-	Ready  bool         `json:"ready"`
-	Checks []readyCheck `json:"checks"`
+	Ready          bool         `json:"ready"`
+	IngestionReady bool         `json:"ingestionReady"`
+	Checks         []readyCheck `json:"checks"`
 }
 
-// handleReadyz reports whether the server is ready to accept ingestion
-// requests: indexer configured, OpenSearch reachable, OCR API healthy,
-// Zefix database reachable. Returns 503 if any dependency is unhealthy.
+// handleReadyz checks OpenSearch and, when ingestion is configured, OCR
+// and configured Zefix dependencies. Read-only servers do not require an
+// indexer. Returns 503 if a required dependency is unhealthy.
 func (s *Server) handleReadyz(c *gin.Context) {
 	resp := s.readinessReport(c.Request.Context())
 	status := http.StatusOK
@@ -37,24 +38,19 @@ func (s *Server) readinessReport(ctx context.Context) readyResponse {
 	osCheck := readyCheck{Name: "opensearch", OK: true}
 	if err := s.pingOs(ctx); err != nil {
 		osCheck.OK = false
-		osCheck.Detail = err.Error()
+		osCheck.Detail = "dependency unavailable"
 	}
 	checks = append(checks, osCheck)
 
-	// Indexer is optional on the server (e.g. read-only deployments), but
-	// ingestion requires it.
-	indexerCheck := readyCheck{Name: "indexer", OK: s.indexer != nil}
-	if !indexerCheck.OK {
-		indexerCheck.Detail = "indexer not configured (OCR_API_ADDR missing on the server) — upload endpoint is disabled"
-	}
-	checks = append(checks, indexerCheck)
+	// A missing indexer is an intentional read-only deployment. Ingestion
+	// dependencies matter only when ingestion was configured.
 
 	if s.indexer != nil {
 		ocrCheck := readyCheck{Name: "ocr", OK: true}
-		ok, err := s.indexer.PingOcrApi()
+		ok, err := s.indexer.PingOcrApiContext(ctx)
 		if err != nil {
 			ocrCheck.OK = false
-			ocrCheck.Detail = err.Error()
+			ocrCheck.Detail = "dependency unavailable"
 		} else if !ok {
 			ocrCheck.OK = false
 			ocrCheck.Detail = "OCR API is not healthy"
@@ -64,9 +60,9 @@ func (s *Server) readinessReport(ctx context.Context) readyResponse {
 		// Zefix is optional — only check if it was configured
 		if s.indexer.IsZefixConfigured() {
 			zefixCheck := readyCheck{Name: "zefix", OK: true}
-			if err := s.indexer.PingZefix(); err != nil {
+			if err := s.indexer.PingZefixContext(ctx); err != nil {
 				zefixCheck.OK = false
-				zefixCheck.Detail = err.Error()
+				zefixCheck.Detail = "dependency unavailable"
 			}
 			checks = append(checks, zefixCheck)
 		}
@@ -79,5 +75,5 @@ func (s *Server) readinessReport(ctx context.Context) readyResponse {
 			break
 		}
 	}
-	return readyResponse{Ready: ready, Checks: checks}
+	return readyResponse{Ready: ready, IngestionReady: ready && s.indexer != nil, Checks: checks}
 }

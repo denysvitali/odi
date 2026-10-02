@@ -1,12 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, FileText, Home, Upload, Sun, Moon, Keyboard, Trash2, Shield, Loader2 } from 'lucide-vue-next'
+import {
+  Search,
+  FileText,
+  Home,
+  Upload,
+  Sun,
+  Moon,
+  Keyboard,
+  Trash2,
+  Shield,
+  Loader2
+} from 'lucide-vue-next'
 import { useTheme } from '@/composables/useTheme'
 import { useDocumentStore } from '@/stores/documents'
 import { useSearch } from '@/composables/useSearch'
 import HighlightedText from '@/components/documents/HighlightedText.vue'
-import { api } from '@/api/client'
+import ProtectedThumbnail from '@/components/documents/ProtectedThumbnail.vue'
 import { formatDate } from '@/lib/format'
 import { extractCompanyFromText } from '@/lib/documentMetadata'
 import type { Document } from '@/types/documents'
@@ -118,9 +129,7 @@ const filtered = computed<Action[]>(() => {
   const all = [...actions.value, ...recentSearches.value]
   const q = query.value.trim().toLowerCase()
   if (!q) return all
-  return all.filter((a) =>
-    (a.label + ' ' + (a.keywords || '')).toLowerCase().includes(q)
-  )
+  return all.filter((a) => (a.label + ' ' + (a.keywords || '')).toLowerCase().includes(q))
 })
 
 const docResults = computed(() => searchResults.value.slice(0, 5))
@@ -198,8 +207,6 @@ const onKeydown = (e: KeyboardEvent) => {
   }
 }
 
-const thumbnailUrl = (id: string) => api.thumbnailUrl(id)
-
 const getCompanyName = (doc: Document): string =>
   doc._source.company?.name || extractCompanyFromText(doc._source.text || '')
 
@@ -238,7 +245,9 @@ const getSnippet = (doc: Document): string => {
               class="h-12 w-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
               @keydown="onKeydown"
             />
-            <kbd class="hidden rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block">
+            <kbd
+              class="hidden rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block"
+            >
               Esc
             </kbd>
           </div>
@@ -279,15 +288,17 @@ const getSnippet = (doc: Document): string => {
                 :aria-selected="filtered.length + di === selected"
                 :class="[
                   'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm',
-                  filtered.length + di === selected ? 'bg-primary/10 text-foreground' : 'text-muted-foreground'
+                  filtered.length + di === selected
+                    ? 'bg-primary/10 text-foreground'
+                    : 'text-muted-foreground'
                 ]"
                 role="option"
                 @mouseenter="selected = filtered.length + di"
                 @click="openDocument(doc)"
               >
                 <div class="h-10 w-8 shrink-0 overflow-hidden rounded bg-muted">
-                  <img
-                    :src="thumbnailUrl(doc._id)"
+                  <ProtectedThumbnail
+                    :id="doc._id"
                     :alt="doc._source.title || 'Document thumbnail'"
                     class="h-full w-full object-cover"
                     loading="lazy"
@@ -302,14 +313,23 @@ const getSnippet = (doc: Document): string => {
                     v-if="getCompanyName(doc) || doc._source.date"
                     class="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"
                   >
-                    <span v-if="getCompanyName(doc)" class="max-w-[140px] truncate">{{ getCompanyName(doc) }}</span>
-                    <span v-if="getCompanyName(doc) && doc._source.date" aria-hidden="true">&middot;</span>
-                    <span v-if="doc._source.date" class="shrink-0">{{ formatDate(doc._source.date) }}</span>
+                    <span v-if="getCompanyName(doc)" class="max-w-[140px] truncate">{{
+                      getCompanyName(doc)
+                    }}</span>
+                    <span v-if="getCompanyName(doc) && doc._source.date" aria-hidden="true"
+                      >&middot;</span
+                    >
+                    <span v-if="doc._source.date" class="shrink-0">{{
+                      formatDate(doc._source.date)
+                    }}</span>
                   </div>
                 </div>
               </li>
 
-              <li v-if="searchLoading" class="flex items-center gap-3 px-3 py-3 text-sm text-muted-foreground">
+              <li
+                v-if="searchLoading"
+                class="flex items-center gap-3 px-3 py-3 text-sm text-muted-foreground"
+              >
                 <Loader2 class="h-4 w-4 animate-spin" aria-hidden="true" />
                 <span>Searching…</span>
               </li>

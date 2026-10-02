@@ -57,9 +57,6 @@ func runPDF(cmd *cobra.Command, args []string) error {
 	if GetString(cmd, FlagOcrAPIAddr) == "" {
 		return fmt.Errorf("required flag or env var not set: %s (env: OCR_API_ADDR)", FlagOcrAPIAddr)
 	}
-	if GetString(cmd, FlagZefixDsn) == "" {
-		return fmt.Errorf("required flag or env var not set: %s (env: ZEFIX_DSN)", FlagZefixDsn)
-	}
 
 	log := logrus.StandardLogger()
 	inputDir := args[0]
@@ -74,7 +71,10 @@ func runPDF(cmd *cobra.Command, args []string) error {
 		opts = append(opts, indexer.WithOpenSearchSkipTLS())
 	}
 
-	llmClient, _ := BuildLLMClient(cmd)
+	llmClient, err := BuildLLMClient(cmd)
+	if err != nil {
+		return fmt.Errorf("configure LLM: %w", err)
+	}
 	if llmClient != nil {
 		opts = append(opts, indexer.WithLLMClient(llmClient))
 	}

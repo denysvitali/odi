@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,11 +85,11 @@ func (s *Server) ensureSharesIndex(ctx context.Context) error {
 		return nil
 	}
 	if statusCode == http.StatusBadRequest {
-		body, _ := io.ReadAll(createResp.Inspect().Response.Body)
+		body, _ := io.ReadAll(io.LimitReader(createResp.Inspect().Response.Body, 64*1024))
 		if strings.Contains(string(body), "resource_already_exists_exception") {
 			return nil
 		}
-		return fmt.Errorf("create shares index returned %s: %s", createResp.Inspect().Response.Status(), string(body))
+		return fmt.Errorf("create shares index returned status %d", createResp.Inspect().Response.StatusCode)
 	}
 	return fmt.Errorf("create shares index: unexpected status %s", createResp.Inspect().Response.Status())
 }
@@ -182,7 +181,7 @@ func (s *Server) handleCreateShare(c *gin.Context) {
 		Params:     opensearchapi.DocumentCreateParams{Refresh: "true"},
 	})
 	if err != nil {
-		log.Errorf("unable to store share record (scan=%s seq=%d): %v", req.ScanID, req.SequenceID, err)
+		log.Error("unable to store share record")
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -304,7 +303,7 @@ func (s *Server) handleRevokeShare(c *gin.Context) {
 		Params:     opensearchapi.UpdateParams{Refresh: "true"},
 	})
 	if err != nil {
-		log.Errorf("unable to revoke share: %v", err)
+		log.Error("unable to revoke share")
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -354,6 +353,8 @@ func (s *Server) loadShareRecord(ctx context.Context, token string) (shareRecord
 // streams the underlying page. All rejection paths return a plain 404 so the
 // endpoint never leaks whether a given token exists, is revoked, or expired.
 func (s *Server) handleServeShare(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Referrer-Policy", "no-referrer")
 	notFound := func() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	}
@@ -372,7 +373,7 @@ func (s *Server) handleServeShare(c *gin.Context) {
 
 	payload, err := verifyShare([]byte(s.apiToken), token)
 	if err != nil {
-		log.Debugf("share token verification failed: %v", err)
+		log.Debug("share token verification failed")
 		notFound()
 		return
 	}
@@ -380,7 +381,7 @@ func (s *Server) handleServeShare(c *gin.Context) {
 	ctx := c.Request.Context()
 	rec, found, err := s.loadShareRecord(ctx, token)
 	if err != nil {
-		log.Errorf("unable to load share record: %v", err)
+		log.Error("unable to load share record")
 		c.JSON(http.StatusInternalServerError, internalServerError)
 		return
 	}
@@ -400,55 +401,61 @@ func (s *Server) handleServeShare(c *gin.Context) {
 	}
 
 	if rec.PassphraseHash != "" {
-		provided := c.Query("p")
-		if provided == "" {
-			provided = c.GetHeader("X-Share-Passphrase")
-		}
+		provided := c.GetHeader("X-Share-Passphrase")
 		if provided == "" {
 			notFound()
 			return
 		}
 		if err := bcrypt.CompareHashAndPassword([]byte(rec.PassphraseHash), []byte(provided)); err != nil {
-			// Constant-time-ish comparison via bcrypt; reject without leaking.
-			_ = subtle.ConstantTimeCompare([]byte(provided), []byte(provided))
 			notFound()
 			return
 		}
 	}
 
-	// Increment the view count before streaming. A failure here is logged but
-	// does not block delivery of the page.
-	if err := s.incrementShareViews(ctx, token); err != nil {
-		log.Warnf("unable to increment share view count for token: %v", err)
+	// Reserve this view atomically against the latest revocation, expiry and
+	// view-limit state. Never deliver a page if accounting could not be committed.
+	reserved, err := s.reserveShareView(ctx, token, time.Now().Unix())
+	if err != nil {
+		log.Error("unable to reserve share view")
+		c.JSON(http.StatusInternalServerError, internalServerError)
+		return
+	}
+	if !reserved {
+		notFound()
+		return
 	}
 
 	s.returnDocument(c, payload.ScanID, fmt.Sprint(payload.SequenceID))
 }
 
-// incrementShareViews atomically bumps viewCount via a painless script update.
-func (s *Server) incrementShareViews(ctx context.Context, token string) error {
+// reserveShareView checks access and consumes a view in a single OpenSearch update.
+func (s *Server) reserveShareView(ctx context.Context, token string, now int64) (bool, error) {
 	updateBody, err := json.Marshal(map[string]any{
 		"script": map[string]any{
-			"source": "ctx._source.viewCount += 1",
+			"source": `if (ctx._source.revoked || ctx._source.expiresAt <= params.now ||
+(ctx._source.maxViews > 0 && ctx._source.viewCount >= ctx._source.maxViews)) {
+ctx.op = 'noop';
+} else { ctx._source.viewCount += 1; }`,
+			"params": map[string]any{"now": now},
 			"lang":   "painless",
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("marshal increment body: %w", err)
+		return false, fmt.Errorf("marshal view reservation: %w", err)
 	}
 
 	updateResp, err := s.osClient.Update(ctx, opensearchapi.UpdateReq{
 		Index:      sharesIndex,
 		DocumentID: token,
 		Body:       bytes.NewReader(updateBody),
-		Params:     opensearchapi.UpdateParams{Refresh: "true"},
+		Params:     opensearchapi.UpdateParams{RetryOnConflict: new(3)},
 	})
 	if err != nil {
-		return fmt.Errorf("increment share views: %w", err)
+		return false, errors.New("share view reservation failed")
 	}
 	defer updateResp.Inspect().Response.Body.Close()
 	if updateResp.Inspect().Response.StatusCode >= 400 {
-		return errors.New("increment share views returned " + updateResp.Inspect().Response.Status())
+		return false, errors.New("share view reservation returned an unsuccessful status")
 	}
-	return nil
+	return updateResp.Result == "updated", nil
 }

@@ -1,6 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Calendar, Building2, FileText, QrCode, AlertCircle, ExternalLink, Star, Tag as TagIcon, Plus, X, Download, Share2 } from 'lucide-vue-next'
+import {
+  Calendar,
+  Building2,
+  FileText,
+  QrCode,
+  AlertCircle,
+  ExternalLink,
+  Star,
+  Tag as TagIcon,
+  Plus,
+  X,
+  Download,
+  Share2
+} from 'lucide-vue-next'
 import {
   Sheet,
   SheetContent,
@@ -25,7 +38,7 @@ import { extractCompanyFromText, extractTitleFromText } from '@/lib/documentMeta
 import { useDocumentDetails } from '@/composables/useDocumentDetails'
 import { useFavorites } from '@/composables/useFavorites'
 import { useTags } from '@/composables/useTags'
-import { api } from '@/api/client'
+import { useDocumentMedia } from '@/composables/useDocumentMedia'
 import { formatDate, formatDateTime } from '@/lib/format'
 import type { Document } from '@/types/documents'
 
@@ -48,8 +61,12 @@ const newTag = ref('')
 const findText = ref('')
 const shareOpen = ref(false)
 
-const thumbnailUrl = computed(() => (props.document ? api.thumbnailUrl(props.document._id) : ''))
-const fullImageUrl = computed(() => (props.document ? api.fileUrl(props.document._id) : ''))
+const {
+  thumbnailUrl,
+  error: mediaError,
+  openFile: openFullImage,
+  downloadFile: downloadImage
+} = useDocumentMedia(computed(() => (props.open ? props.document?._id || '' : '')))
 const docId = computed(() => props.document?._id || '')
 const starred = computed(() => (docId.value ? isFavorite(docId.value) : false))
 const docTags = computed(() => (docId.value ? getTags(docId.value) : []))
@@ -69,32 +86,22 @@ const hasBarcodes = computed(() => {
   return details.value?.barcodes && details.value.barcodes.length > 0
 })
 
-watch([() => props.document, () => props.open], ([newDoc, isOpen]) => {
-  if (isOpen && newDoc) {
-    fetchDetails(newDoc._id)
-  } else if (!isOpen) {
-    clearDetails()
-    findText.value = ''
-  }
-}, { immediate: true })
+watch(
+  [() => props.document, () => props.open],
+  ([newDoc, isOpen]) => {
+    if (isOpen && newDoc) {
+      fetchDetails(newDoc._id)
+    } else if (!isOpen) {
+      clearDetails()
+      findText.value = ''
+    }
+  },
+  { immediate: true }
+)
 
 const handleOpenChange = (value: boolean) => {
   emit('update:open', value)
   if (!value) clearDetails()
-}
-
-const openFullImage = () => {
-  window.open(fullImageUrl.value, '_blank', 'noopener,noreferrer')
-}
-
-const downloadImage = () => {
-  const a = document.createElement('a')
-  a.href = fullImageUrl.value
-  a.download = docId.value
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
 }
 
 const onAddTag = (e: Event) => {
@@ -172,43 +179,47 @@ const onAddTag = (e: Event) => {
         </div>
 
         <div v-else-if="details" class="space-y-6 py-6">
+          <p v-if="mediaError" role="alert" class="text-sm text-destructive">{{ mediaError }}</p>
           <div
             class="group relative aspect-[3/4] cursor-zoom-in overflow-hidden rounded-lg bg-gradient-to-br from-muted to-muted/60"
+            role="button"
+            tabindex="0"
+            aria-label="Open document image"
+            @keydown.enter="openFullImage"
+            @keydown.space.prevent="openFullImage"
             @click="openFullImage"
           >
             <img
+              v-if="thumbnailUrl"
               :src="thumbnailUrl"
               :alt="`Preview for document ${document?._id}`"
               class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
               loading="lazy"
               decoding="async"
             />
-            <div class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
+            <div
+              class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100"
+            >
               <Button variant="secondary" size="sm">
                 <ExternalLink class="mr-2 h-4 w-4" aria-hidden="true" />
                 View Full Image
               </Button>
-                </div>
-              </div>
+            </div>
+          </div>
 
-              <DocumentSummaryPanel v-if="docId" :document-id="docId" />
+          <DocumentSummaryPanel v-if="docId" :document-id="docId" />
 
-              <DocumentDetailSection v-if="documentTitle" title="Subject" :icon="FileText">
-                <p class="text-sm text-foreground">{{ documentTitle }}</p>
-              </DocumentDetailSection>
+          <DocumentDetailSection v-if="documentTitle" title="Subject" :icon="FileText">
+            <p class="text-sm text-foreground">{{ documentTitle }}</p>
+          </DocumentDetailSection>
 
-              <div>
-                <div class="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <TagIcon class="h-3.5 w-3.5" aria-hidden="true" />
-                  Tags
+          <div>
+            <div class="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <TagIcon class="h-3.5 w-3.5" aria-hidden="true" />
+              Tags
             </div>
             <div class="flex flex-wrap items-center gap-1.5">
-              <Badge
-                v-for="t in docTags"
-                :key="t"
-                variant="secondary"
-                class="gap-1"
-              >
+              <Badge v-for="t in docTags" :key="t" variant="secondary" class="gap-1">
                 {{ t }}
                 <button
                   type="button"
@@ -271,7 +282,9 @@ const onAddTag = (e: Event) => {
 
                   <div v-if="details.indexedAt" class="space-y-1">
                     <p class="text-xs text-muted-foreground">Indexed At</p>
-                    <p class="text-sm text-muted-foreground">{{ formatDateTime(details.indexedAt) }}</p>
+                    <p class="text-sm text-muted-foreground">
+                      {{ formatDateTime(details.indexedAt) }}
+                    </p>
                   </div>
                 </div>
               </DocumentDetailSection>
@@ -285,9 +298,7 @@ const onAddTag = (e: Event) => {
                 <p v-else-if="inferredCompany" class="text-sm text-foreground">
                   {{ inferredCompany }}
                 </p>
-                <p v-else class="text-sm text-muted-foreground">
-                  No company information available
-                </p>
+                <p v-else class="text-sm text-muted-foreground">No company information available</p>
               </DocumentDetailSection>
             </TabsContent>
 
@@ -301,9 +312,7 @@ const onAddTag = (e: Event) => {
               <template v-if="details.text">
                 <DocumentTextContent :text="details.text" :find="findText" />
               </template>
-              <p v-else class="text-sm text-muted-foreground">
-                No text content available
-              </p>
+              <p v-else class="text-sm text-muted-foreground">No text content available</p>
             </TabsContent>
 
             <TabsContent value="barcodes" class="space-y-4 pt-4">
@@ -314,9 +323,7 @@ const onAddTag = (e: Event) => {
                   :barcode="barcode"
                 />
               </template>
-              <p v-else class="text-sm text-muted-foreground">
-                No barcodes found in this document
-              </p>
+              <p v-else class="text-sm text-muted-foreground">No barcodes found in this document</p>
             </TabsContent>
           </Tabs>
         </div>
@@ -328,5 +335,10 @@ const onAddTag = (e: Event) => {
     </SheetContent>
   </Sheet>
 
-  <ShareDialog v-if="docId" :doc-id="docId" :open="shareOpen" @update:open="(v) => (shareOpen = v)" />
+  <ShareDialog
+    v-if="docId"
+    :doc-id="docId"
+    :open="shareOpen"
+    @update:open="(v) => (shareOpen = v)"
+  />
 </template>

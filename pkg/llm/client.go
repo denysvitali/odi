@@ -26,6 +26,7 @@ const (
 	defaultTimeout   = 45 * time.Second
 	maxInputRunes    = 12000
 	defaultMaxTokens = 256
+	maxResponseBytes = 1024 * 1024
 )
 
 var log = logrus.StandardLogger().WithField("package", "llm")
@@ -216,11 +217,17 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, payload []byte)
 	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
-		return nil, fmt.Errorf("unexpected status %s: %s", res.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("unexpected LLM status code %d", res.StatusCode)
 	}
 
-	return io.ReadAll(res.Body)
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read LLM response: %w", err)
+	}
+	if len(body) > maxResponseBytes {
+		return nil, errors.New("LLM response exceeds size limit")
+	}
+	return body, nil
 }
 
 func (c *Client) ExtractMetadata(ctx context.Context, text string) (Metadata, error) {
@@ -242,7 +249,7 @@ func (c *Client) ExtractMetadata(ctx context.Context, text string) (Metadata, er
 	}
 	meta, err := c.parseMetadata(content)
 	if err != nil {
-		log.Warnf("LLM returned unparsable JSON: %q", strings.TrimSpace(content))
+		log.Warn("LLM returned unparsable metadata JSON")
 		return Metadata{}, fmt.Errorf("parse metadata: %w", err)
 	}
 	return meta, nil

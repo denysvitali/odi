@@ -239,9 +239,9 @@ func GetStorage(cmd *cobra.Command) (model.RWStorage, error) {
 			return nil, fmt.Errorf("failed to resolve keychain values: %w", err)
 		}
 		return storage.SetupB2Storage(config)
-	case "fs":
+	case "fs", "filesystem":
 		return storage.SetupFsStorage(GetString(cmd, FlagFsPath))
 	default:
-		return nil, nil
+		return nil, fmt.Errorf("unsupported storage type %q: expected b2, fs, or filesystem", storageType)
 	}
 }
