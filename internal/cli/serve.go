@@ -98,19 +98,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	ocrAddr := GetString(cmd, FlagOcrAPIAddr)
 	zefixDsn := GetString(cmd, FlagZefixDsn)
 	if ocrAddr != "" {
-		opts := []indexer.Option{
-			indexer.WithOpenSearchUsername(GetString(cmd, FlagOsUsername)),
-			indexer.WithOpenSearchPassword(GetString(cmd, FlagOsPassword)),
-			indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)),
-			indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)),
-		}
-		if GetBool(cmd, FlagOsSkipTLS) {
-			opts = append(opts, indexer.WithOpenSearchSkipTLS())
-		}
-
-		if llmClient != nil {
-			opts = append(opts, indexer.WithLLMClient(llmClient))
-		}
+		opts := commandIndexerOptions(cmd, llmClient)
+		opts = append(opts, indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)))
 
 		idx, err := initializeIndexer(ctx, 3, time.Second, func() (*indexer.Indexer, error) {
 			attemptCtx, cancelAttempt := context.WithTimeout(ctx, 30*time.Second)

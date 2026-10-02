@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, watchEffect } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -15,7 +15,11 @@ export function useTheme() {
 
   const setTheme = (newTheme: Theme) => {
     theme.value = newTheme
-    localStorage.setItem('odi-theme', newTheme)
+    try {
+      localStorage.setItem('odi-theme', newTheme)
+    } catch {
+      /* Apply the selected theme even without browser storage. */
+    }
     updateDocumentClass()
   }
 
@@ -38,24 +42,24 @@ export function useTheme() {
     updateDocumentClass()
   }
 
+  let mediaQuery: MediaQueryList | undefined
   onMounted(() => {
-    // Load saved theme
-    const savedTheme = localStorage.getItem('odi-theme') as Theme | null
-    if (savedTheme) {
-      theme.value = savedTheme
+    try {
+      const savedTheme = localStorage.getItem('odi-theme')
+      if (savedTheme === 'system' || savedTheme === 'light' || savedTheme === 'dark')
+        theme.value = savedTheme
+    } catch {
+      /* Keep the current theme when browser storage is unavailable. */
     }
 
     // Listen for system theme changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     isDark.value = mediaQuery.matches
 
     mediaQuery.addEventListener('change', handleMediaQuery)
     updateDocumentClass()
-
-    return () => {
-      mediaQuery.removeEventListener('change', handleMediaQuery)
-    }
   })
+  onUnmounted(() => mediaQuery?.removeEventListener('change', handleMediaQuery))
 
   // Re-apply class when theme changes
   watchEffect(() => {

@@ -2,10 +2,16 @@
 import { FileText, Star, CheckSquare, Square } from 'lucide-vue-next'
 import { useFavorites } from '@/composables/useFavorites'
 import { extractTitleFromText } from '@/lib/documentMetadata'
+import HighlightedText from './HighlightedText.vue'
 import { formatDate } from '@/lib/format'
 import type { Document } from '@/types/documents'
 
-defineProps<{ documents: Document[]; selectable?: boolean; selectedIds?: Set<string> }>()
+defineProps<{
+  documents: Document[]
+  selectable?: boolean
+  selectedIds?: Set<string>
+  searchTerm?: string
+}>()
 const emit = defineEmits<{ selectDocument: [doc: Document]; toggleSelect: [doc: Document] }>()
 const { isFavorite, toggle } = useFavorites()
 const title = (doc: Document) =>
@@ -44,11 +50,25 @@ const title = (doc: Document) =>
           ><span class="document-list-title">{{ title(doc) }}</span
           ><span class="document-list-subtitle">{{
             doc._source.company?.name || 'Personal document'
-          }}</span></span
-        >
+          }}</span>
+          <span
+            v-if="searchTerm && doc.highlight?.text?.[0]"
+            class="mt-1 block line-clamp-2 text-xs text-muted-foreground"
+          >
+            <HighlightedText :text="doc.highlight.text[0]" />
+          </span>
+        </span>
       </button>
-      <span class="document-list-type capitalize">{{ doc._source.docType || '—' }}</span>
-      <span class="document-list-date">{{ formatDate(doc._source.date) || 'Undated' }}</span>
+      <span
+        class="document-list-type capitalize"
+        :aria-label="`Type: ${doc._source.docType || 'Unknown'}`"
+        >{{ doc._source.docType || '—' }}</span
+      >
+      <span
+        class="document-list-date"
+        :aria-label="`Document date: ${formatDate(doc._source.date) || 'Undated'}`"
+        >{{ formatDate(doc._source.date) || 'Undated' }}</span
+      >
       <button
         type="button"
         class="list-star"

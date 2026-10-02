@@ -61,25 +61,11 @@ func runReindex(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reindex requires B2 storage (got %T)", store)
 	}
 
-	var opts []indexer.Option
-	if username := GetString(cmd, FlagOsUsername); username != "" {
-		opts = append(opts, indexer.WithOpenSearchUsername(username))
-	}
-	if password := GetString(cmd, FlagOsPassword); password != "" {
-		opts = append(opts, indexer.WithOpenSearchPassword(password))
-	}
-	if GetBool(cmd, FlagOsSkipTLS) {
-		opts = append(opts, indexer.WithOpenSearchSkipTLS())
-	}
-	opts = append(opts, indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)))
-
 	llmClient, err := BuildLLMClient(cmd)
 	if err != nil {
 		return fmt.Errorf("configure LLM: %w", err)
 	}
-	if llmClient != nil {
-		opts = append(opts, indexer.WithLLMClient(llmClient))
-	}
+	opts := commandIndexerOptions(cmd, llmClient)
 
 	idx, err := indexer.New(
 		GetString(cmd, FlagOsAddr),

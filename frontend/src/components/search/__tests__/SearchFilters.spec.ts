@@ -1,15 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import SearchFilters from '@/components/search/SearchFilters.vue'
 import type { SearchFilters as SearchFiltersType, FacetData } from '@/api/client'
 
 // Stub child components so we only test SearchFilters logic, not the UI kit.
 const stubs = {
-  Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+  Button: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
   Input: {
     props: ['modelValue', 'type', 'placeholder'],
     emits: ['update:modelValue', 'change'],
-    template: '<input :type="type" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
+    template:
+      '<input :type="type" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
   },
   Badge: {
     props: ['variant'],
@@ -24,7 +25,7 @@ const stubs = {
   Calendar: { template: '<span />' },
   QrCode: { template: '<span />' },
   Type: { template: '<span />' },
-  SlidersHorizontal: { template: '<span />' },
+  SlidersHorizontal: { template: '<span />' }
 }
 
 const emptyFilters: SearchFiltersType = {}
@@ -33,33 +34,38 @@ const emptyFacets: FacetData = {
   companies: [],
   dateHistogram: [],
   barcodeCount: 0,
-  totalHits: 0,
+  totalHits: 0
 }
 
 const sampleFacets: FacetData = {
   companies: [
     { key: 'Swisscom', doc_count: 12 },
     { key: 'SBB', doc_count: 5 },
-    { key: 'PostFinance', doc_count: 3 },
+    { key: 'PostFinance', doc_count: 3 }
   ],
   dateHistogram: [
     { key: '2024-01-01', doc_count: 8 },
-    { key: '2024-02-01', doc_count: 4 },
+    { key: '2024-02-01', doc_count: 4 }
   ],
   barcodeCount: 7,
-  totalHits: 20,
+  totalHits: 20
 }
 
 function mountFilters(
-  props: Partial<{ filters: SearchFiltersType; facets: FacetData; loading: boolean; activeCount: number }> = {}
+  props: Partial<{
+    filters: SearchFiltersType
+    facets: FacetData
+    loading: boolean
+    activeCount: number
+  }> = {}
 ): VueWrapper {
   return mount(SearchFilters, {
     props: {
       filters: emptyFilters,
       facets: emptyFacets,
-      ...props,
+      ...props
     },
-    global: { stubs },
+    global: { stubs }
   })
 }
 
@@ -72,10 +78,14 @@ describe('SearchFilters', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
   })
 
+  afterEach(() => vi.useRealTimers())
+
   describe('rendering filter sections', () => {
     it('renders the component root element', () => {
       const wrapper = mountFilters()
-      expect(wrapper.find('[class*="hidden lg:block"]').exists() || wrapper.html().length > 0).toBe(true)
+      expect(wrapper.find('[class*="hidden lg:block"]').exists() || wrapper.html().length > 0).toBe(
+        true
+      )
     })
 
     it('renders the company section when companies facet data is provided', () => {
@@ -86,7 +96,7 @@ describe('SearchFilters', () => {
 
     it('does not render company checkboxes when companies facet is empty', () => {
       const wrapper = mountFilters({
-        facets: { ...emptyFacets },
+        facets: { ...emptyFacets }
       })
       // Company section should not appear when there are no company facets.
       const companyInputs = wrapper.findAll('input[type="checkbox"]')
@@ -129,7 +139,7 @@ describe('SearchFilters', () => {
     it('emits update:filters when a company checkbox is toggled', async () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: emptyFilters,
+        filters: emptyFilters
       })
 
       // Find the first company checkbox and click it.
@@ -150,7 +160,7 @@ describe('SearchFilters', () => {
     it('removes a company when unchecked', async () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: { companies: ['Swisscom'] },
+        filters: { companies: ['Swisscom'] }
       })
 
       const companySection = wrapper.findAll('label').find((el) => el.text().includes('Swisscom'))
@@ -167,7 +177,7 @@ describe('SearchFilters', () => {
     it('supports multiple company selections', async () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: emptyFilters,
+        filters: emptyFilters
       })
 
       // Select Swisscom
@@ -224,7 +234,7 @@ describe('SearchFilters', () => {
 
     it('initializes date inputs from filter props', () => {
       const wrapper = mountFilters({
-        filters: { dateFrom: '2024-03-01', dateTo: '2024-03-31' },
+        filters: { dateFrom: '2024-03-01', dateTo: '2024-03-31' }
       })
 
       const dateInputs = wrapper.findAll('input[type="date"]')
@@ -242,7 +252,7 @@ describe('SearchFilters', () => {
       const wrapper = mountFilters({
         filters: { companies: ['Swisscom'] },
         facets: sampleFacets,
-        activeCount: 1,
+        activeCount: 1
       })
 
       expect(wrapper.html()).toContain('Clear all')
@@ -252,7 +262,7 @@ describe('SearchFilters', () => {
       const wrapper = mountFilters({
         filters: { companies: ['Swisscom'] },
         facets: sampleFacets,
-        activeCount: 1,
+        activeCount: 1
       })
 
       // Find and click the clear button
@@ -271,10 +281,10 @@ describe('SearchFilters', () => {
         filters: {
           companies: ['Swisscom'],
           dateFrom: '2024-01-01',
-          dateTo: '2024-12-31',
+          dateTo: '2024-12-31'
         },
         facets: sampleFacets,
-        activeCount: 3,
+        activeCount: 3
       })
 
       const buttons = wrapper.findAll('button')
@@ -282,13 +292,19 @@ describe('SearchFilters', () => {
       await clearBtn!.trigger('click')
       await vi.advanceTimersByTime(100)
 
-      const emitted = wrapper.emitted('update:filters')
-      expect(emitted).toBeTruthy()
-      // After clearing, the emitted filters should be empty/default.
-      const lastEmit = emitted![emitted!.length - 1][0] as SearchFiltersType
-      expect(lastEmit.companies || []).toHaveLength(0)
-      expect(lastEmit.dateFrom || '').toBe('')
-      expect(lastEmit.dateTo || '').toBe('')
+      expect(wrapper.emitted('clear')).toHaveLength(1)
+      // Clearing is a single action, without deferred filter updates racing the parent.
+      expect(wrapper.emitted('update:filters')).toBeUndefined()
+      expect(
+        wrapper
+          .findAll('input[type="date"]')
+          .every((input) => (input.element as HTMLInputElement).value === '')
+      ).toBe(true)
+      expect(
+        wrapper
+          .findAll('input[type="checkbox"]')
+          .every((input) => !(input.element as HTMLInputElement).checked)
+      ).toBe(true)
     })
   })
 
@@ -311,14 +327,14 @@ describe('SearchFilters', () => {
       const html = wrapper.html()
 
       expect(html).toContain('12') // Swisscom count
-      expect(html).toContain('5')  // SBB count
-      expect(html).toContain('3')  // PostFinance count
+      expect(html).toContain('5') // SBB count
+      expect(html).toContain('3') // PostFinance count
     })
 
     it('checks the checkbox for pre-selected companies', () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: { companies: ['Swisscom'] },
+        filters: { companies: ['Swisscom'] }
       })
 
       const swisscomLabel = wrapper.findAll('label').find((el) => el.text().includes('Swisscom'))
@@ -329,7 +345,7 @@ describe('SearchFilters', () => {
     it('does not check unchecked for unselected companies', () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: { companies: ['Swisscom'] },
+        filters: { companies: ['Swisscom'] }
       })
 
       const sbbLabel = wrapper.findAll('label').find((el) => el.text().includes('SBB'))
@@ -368,23 +384,12 @@ describe('SearchFilters', () => {
     it('emits filters with hasBarcode when barcode toggle is clicked', async () => {
       const wrapper = mountFilters({
         facets: sampleFacets,
-        filters: emptyFilters,
+        filters: emptyFilters
       })
 
-      // Find the barcode toggle button
-      const barcodeButtons = wrapper.findAll('button').filter((b) => {
-        const text = b.text()
-        return text.includes('Any') || text.includes('barcode') || text.includes('With')
-      })
-
-      // Click the first barcode-related button
-      if (barcodeButtons.length > 0) {
-        await barcodeButtons[0].trigger('click')
-        await vi.advanceTimersByTime(100)
-
-        const emitted = wrapper.emitted('update:filters')
-        expect(emitted).toBeTruthy()
-      }
+      await wrapper.get('select').setValue('false')
+      const updates = wrapper.emitted('update:filters')
+      expect(updates?.[updates.length - 1]?.[0]).toEqual({ hasBarcode: false })
     })
   })
 
@@ -421,5 +426,35 @@ describe('SearchFilters', () => {
       const countBadges = badges.filter((b) => b.text() === '3')
       expect(countBadges.length).toBe(0)
     })
+  })
+  it('preserves selected facet values when suggestions are unavailable', () => {
+    const wrapper = mountFilters({
+      filters: { companies: ['Saved company'], docTypes: ['invoice'], tags: ['important'] }
+    })
+    expect(wrapper.text()).toContain('Saved company')
+    expect(wrapper.text()).toContain('invoice')
+    expect(wrapper.text()).toContain('important')
+    expect(wrapper.get('input[type="checkbox"]').element).toHaveProperty('checked', true)
+  })
+  it('does not mutate incoming arrays when a company is removed', async () => {
+    const filters = { companies: ['Swisscom'] }
+    const wrapper = mountFilters({ filters, facets: sampleFacets })
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(false)
+    expect(filters.companies).toEqual(['Swisscom'])
+    const updates = wrapper.emitted('update:filters')
+    expect(updates?.[updates.length - 1]?.[0]).toEqual({})
+  })
+  it('cancels pending title changes on unmount or clear and does not echo prop changes', async () => {
+    const wrapper = mountFilters()
+    await wrapper.get('input[type="text"]').setValue('Synthetic title')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(wrapper.emitted('update:filters')).toBeUndefined()
+    await wrapper.setProps({ filters: { titleFilter: 'Restored title' } })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(wrapper.emitted('update:filters')).toBeUndefined()
+    await wrapper.get('input[type="text"]').setValue('Pending')
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(wrapper.emitted('update:filters')).toBeUndefined()
   })
 })

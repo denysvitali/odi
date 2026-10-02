@@ -138,6 +138,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
     <DocumentList
       v-if="view === 'list' && !loading && documents.length"
       :documents="displayedDocuments"
+      :search-term="searchTerm"
       :selectable="selectable"
       :selected-ids="selectedIds"
       @select-document="emit('selectDocument', $event)"

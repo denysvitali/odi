@@ -1,8 +1,6 @@
 package server
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +8,6 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -56,29 +53,7 @@ func (s *Server) handleSearch(c *gin.Context) {
 		return
 	}
 
-	queryString := map[string]any{
-		"query_string": map[string]any{
-			"query":            searchRequest.SearchTerm,
-			"fields":           []string{"text", "company.name", "title"},
-			"default_operator": "AND",
-		},
-	}
-
-	if strings.TrimSpace(searchRequest.SearchTerm) == "" {
-		queryString = map[string]any{"match_all": map[string]any{}}
-	}
-
-	filters := buildSearchFilters(searchRequest)
-
-	query := queryString
-	if len(filters) > 0 {
-		query = map[string]any{
-			"bool": map[string]any{
-				"must":   []any{queryString},
-				"filter": filters,
-			},
-		}
-	}
+	query := buildSearchQuery(searchRequest)
 
 	searchContent := map[string]any{
 		"size":  size,
@@ -90,34 +65,9 @@ func (s *Server) handleSearch(c *gin.Context) {
 		},
 	}
 
-	jsonBody, marshalErr := json.Marshal(searchContent)
-	if marshalErr != nil {
-		log.Errorf("unable to marshal search body size=%d: %v", size, marshalErr)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	searchResp, err := s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
-		Indices: []string{s.osIndex},
-		Body:    bytes.NewReader(jsonBody),
-		Params: opensearchapi.SearchParams{
-			Scroll: 10 * time.Minute,
-		},
-	})
-	if err != nil {
-		log.Errorf("unable to perform search size=%d", size)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-	defer searchResp.Inspect().Response.Body.Close()
-
-	if searchResp.Inspect().Response.StatusCode >= 400 {
-		log.Errorf("search returned status %d", searchResp.Inspect().Response.StatusCode)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream search response")
+	s.streamSearch(c, searchContent, opensearchapi.SearchParams{
+		Scroll: 10 * time.Minute,
+	}, "search")
 }
 
 // buildSearchFilters constructs OpenSearch filter clauses from the structured
@@ -189,19 +139,8 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		return
 	}
 
-	queryString := map[string]any{
-		"query_string": map[string]any{
-			"query":            req.SearchTerm,
-			"fields":           []string{"text", "company.name", "title"},
-			"default_operator": "AND",
-		},
-	}
-
-	if strings.TrimSpace(req.SearchTerm) == "" {
-		queryString = map[string]any{"match_all": map[string]any{}}
-	}
-
-	filters := buildSearchFilters(SearchRequest{
+	query := buildSearchQuery(SearchRequest{
+		SearchTerm: req.SearchTerm,
 		Companies:  req.Companies,
 		DateFrom:   req.DateFrom,
 		DateTo:     req.DateTo,
@@ -210,16 +149,6 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		DocTypes:   req.DocTypes,
 		Tags:       req.Tags,
 	})
-
-	query := queryString
-	if len(filters) > 0 {
-		query = map[string]any{
-			"bool": map[string]any{
-				"must":   []any{queryString},
-				"filter": filters,
-			},
-		}
-	}
 
 	aggs := map[string]any{
 		"companies": map[string]any{
@@ -252,31 +181,7 @@ func (s *Server) handleSearchFacets(c *gin.Context) {
 		"aggs":  aggs,
 	}
 
-	jsonBody, marshalErr := json.Marshal(searchContent)
-	if marshalErr != nil {
-		log.Errorf("unable to marshal facets body: %v", marshalErr)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	searchResp, err := s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
-		Indices: []string{s.osIndex},
-		Body:    bytes.NewReader(jsonBody),
-	})
-	if err != nil {
-		log.Error("unable to perform facets search")
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-	defer searchResp.Inspect().Response.Body.Close()
-
-	if searchResp.Inspect().Response.StatusCode >= 400 {
-		log.Errorf("facets search returned status %d", searchResp.Inspect().Response.StatusCode)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream facets response")
+	s.streamSearch(c, searchContent, opensearchapi.SearchParams{}, "facets")
 }
 
 // streamScroll continues an OpenSearch scroll request and streams the raw
@@ -524,8 +429,6 @@ func (s *Server) handleGetDocument(c *gin.Context) {
 
 func (s *Server) handleGetDocuments(c *gin.Context) {
 	scrollId := c.Query("scroll_id")
-	var searchResp *opensearchapi.SearchResp
-	var err error
 
 	if scrollId != "" {
 		s.streamScroll(c, scrollId, "documents scroll")
@@ -586,31 +489,7 @@ func (s *Server) handleGetDocuments(c *gin.Context) {
 			"bool": map[string]any{"filter": filters},
 		}
 	}
-	jsonBody, marshalErr := json.Marshal(searchBody)
-	if marshalErr != nil {
-		log.Errorf("unable to marshal search body: %v", marshalErr)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-	searchResp, err = s.osClient.Search(c.Request.Context(), &opensearchapi.SearchReq{
-		Indices: []string{s.osIndex},
-		Body:    bytes.NewReader(jsonBody),
-		Params: opensearchapi.SearchParams{
-			Scroll: 10 * time.Minute,
-		},
-	})
-	if err != nil {
-		log.Errorf("unable to get documents: %v", err)
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-	defer searchResp.Inspect().Response.Body.Close()
-
-	if searchResp.Inspect().Response.StatusCode >= 400 {
-		log.Warnf("unable to get documents: %s", searchResp.Inspect().Response.Status())
-		c.JSON(http.StatusInternalServerError, internalServerError)
-		return
-	}
-
-	s.streamResponseBody(c, searchResp.Inspect().Response.Body, "unable to stream documents response")
+	s.streamSearch(c, searchBody, opensearchapi.SearchParams{
+		Scroll: 10 * time.Minute,
+	}, "documents")
 }

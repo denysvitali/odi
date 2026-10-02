@@ -16,7 +16,6 @@ import {
   X,
   Plus,
   Clock,
-  CheckCircle2,
   Sparkles
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -25,6 +24,8 @@ import PageContainer from '@/components/layout/PageContainer.vue'
 import DocumentGrid from '@/components/documents/DocumentGrid.vue'
 import DocumentDetailSheet from '@/components/documents/DocumentDetailSheet.vue'
 import SearchFilters from '@/components/search/SearchFilters.vue'
+import SavedSearchPanel from '@/components/workspace/SavedSearchPanel.vue'
+import UpcomingPanel from '@/components/workspace/UpcomingPanel.vue'
 import { useDocuments } from '@/composables/useDocuments'
 import { useReminders } from '@/composables/useReminders'
 import { useFavorites } from '@/composables/useFavorites'
@@ -44,7 +45,7 @@ const store = useDocumentStore()
 const recent = useDocuments({ initialPageSize: 6 })
 const deadlines = useReminders()
 const { count: favoriteCount } = useFavorites()
-const { searches: savedSearches, save, remove, error: savedError } = useSavedSearches()
+const { searches: savedSearches, save, rename, remove, error: savedError } = useSavedSearches()
 const { results, total, loading, loadingMore, error, scrollId, search, loadMore } =
   useArchiveSearch()
 const term = ref('')
@@ -98,14 +99,6 @@ function startSave() {
   saveName.value = activeTerm.value || 'Filtered documents'
   savedMessage.value = ''
   saving.value = !saving.value
-}
-function dateParts(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return { month: 'Due', day: '—' }
-  return {
-    month: date.toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' }),
-    day: date.toLocaleDateString(undefined, { day: 'numeric', timeZone: 'UTC' })
-  }
 }
 watch(
   () => route.query,
@@ -295,88 +288,19 @@ onMounted(() => {
           /></RouterLink>
         </div>
         <div>
-          <section id="upcoming" class="workspace-panel scroll-mt-24">
-            <h2 class="panel-title">
-              <CalendarDays :size="16" class="text-primary" aria-hidden="true" />On the horizon
-            </h2>
-            <p v-if="deadlines.loading.value" class="panel-caption" role="status">
-              Checking upcoming dates…
-            </p>
-            <div v-else-if="deadlines.error.value" role="alert">
-              <p class="panel-caption">Upcoming dates are unavailable.</p>
-              <Button variant="ghost" size="sm" @click="deadlines.load(90)">Try again</Button>
-            </div>
-            <template v-else-if="deadlines.hasReminders.value"
-              ><RouterLink
-                v-for="item in deadlines.reminders.value.slice(0, 4)"
-                :key="item.id"
-                :to="`/documents/${encodeURIComponent(item.id)}`"
-                class="reminder-item"
-                ><span class="reminder-date"
-                  ><small>{{ dateParts(item.dueDate).month }}</small
-                  ><strong>{{ dateParts(item.dueDate).day }}</strong></span
-                >
-                <div class="min-w-0">
-                  <h3 class="truncate">{{ item.title }}</h3>
-                  <p>{{ item.company || item.docType || 'Document deadline' }}</p>
-                  <p v-if="item.amountDue">{{ item.amountDue }}</p>
-                </div></RouterLink
-              >
-              <details v-if="deadlines.reminders.value.length > 4" class="mt-3">
-                <summary class="text-action cursor-pointer">
-                  Show {{ deadlines.reminders.value.length - 4 }} more deadlines
-                </summary>
-                <RouterLink
-                  v-for="item in deadlines.reminders.value.slice(4)"
-                  :key="item.id"
-                  :to="`/documents/${encodeURIComponent(item.id)}`"
-                  class="reminder-item"
-                  ><span class="reminder-date"
-                    ><small>{{ dateParts(item.dueDate).month }}</small
-                    ><strong>{{ dateParts(item.dueDate).day }}</strong></span
-                  >
-                  <div class="min-w-0">
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.company || item.docType }}</p>
-                  </div></RouterLink
-                >
-              </details></template
-            >
-            <div v-else class="py-3">
-              <CheckCircle2 :size="24" class="mb-3 text-primary" aria-hidden="true" />
-              <p class="text-sm font-medium">Nothing coming up.</p>
-              <p class="panel-caption mt-1">No extracted deadlines in the next 90 days.</p>
-            </div>
-            <p class="reminder-footer">
-              Dates extracted from your documents. Check the original before acting.
-            </p>
-          </section>
-          <section id="saved-searches" class="workspace-panel scroll-mt-24">
-            <h2 class="panel-title">
-              <Bookmark :size="16" class="text-primary" aria-hidden="true" />Saved searches
-            </h2>
-            <div v-for="item in savedSearches" :key="item.id" class="saved-search-row">
-              <button type="button" @click="navigateSearch(item.term, item.filters)">
-                <Search :size="13" class="shrink-0 text-muted-foreground" aria-hidden="true" /><span
-                  class="truncate"
-                  >{{ item.name }}</span
-                ></button
-              ><button
-                type="button"
-                :aria-label="`Remove saved search ${item.name}`"
-                @click="remove(item.id)"
-              >
-                <X :size="13" />
-              </button>
-            </div>
-            <p v-if="!savedSearches.length" class="panel-caption">
-              Keep your frequent searches close. Run a search, then save it here with its filters.
-            </p>
-            <p class="reminder-footer">Saved only in this browser on this device.</p>
-            <p v-if="savedError" role="alert" class="mt-2 text-xs text-destructive">
-              {{ savedError }}
-            </p>
-          </section>
+          <UpcomingPanel
+            :buckets="deadlines.buckets.value"
+            :loading="deadlines.loading.value"
+            :error="deadlines.error.value"
+            @retry="deadlines.load(90)"
+          />
+          <SavedSearchPanel
+            :searches="savedSearches"
+            :error="savedError"
+            :rename="rename"
+            @select="navigateSearch($event.term, $event.filters)"
+            @remove="remove"
+          />
         </div>
       </div>
     </template>

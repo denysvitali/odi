@@ -54,6 +54,29 @@ describe('device-local saved searches', () => {
     expect(saved.searches.value).toEqual([])
     expect(saved.error.value).toContain('not saved')
   })
+  it('renames without changing filters, order, or identifiers, and restores the new name', () => {
+    const saved = useSavedSearches()
+    saved.save('Invoices', '', { docTypes: ['invoice'], companies: ['Sample'] })
+    saved.save('Contracts', 'agreement', {})
+    const before = saved.searches.value.map((item) => ({ ...item, filters: { ...item.filters } }))
+    const id = before[1].id
+    expect(saved.rename(id, '  Household bills  ')).toBe(true)
+    expect(saved.searches.value).toEqual([before[0], { ...before[1], name: 'Household bills' }])
+    expect(useSavedSearches().searches.value[1].name).toBe('Household bills')
+  })
+  it('rejects blank or missing renames and keeps the original when storage fails', () => {
+    const saved = useSavedSearches()
+    saved.save('Invoices', 'invoice', {})
+    const id = saved.searches.value[0].id
+    expect(saved.rename(id, '   ')).toBe(false)
+    expect(saved.rename('missing', 'Name')).toBe(false)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('Full')
+    })
+    expect(saved.rename(id, 'Bills')).toBe(false)
+    expect(saved.searches.value[0].name).toBe('Invoices')
+    expect(saved.error.value).toContain('not saved')
+  })
   it('limits storage and rejects empty searches', () => {
     const saved = useSavedSearches()
     expect(saved.save('Empty', '', {})).toBe(false)

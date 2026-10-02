@@ -13,7 +13,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  selected: () => [],
+  selected: () => []
 })
 
 const emit = defineEmits<{
@@ -45,16 +45,21 @@ const toggle = (key: string) => {
         v-for="bucket in buckets"
         :key="bucket.key"
         type="button"
-        :class="cn(
-          'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-          isSelected(bucket.key)
-            ? 'border-primary bg-primary/10 text-primary'
-            : 'border-input hover:bg-accent'
-        )"
+        :class="
+          cn(
+            'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+            isSelected(bucket.key)
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-input hover:bg-secondary'
+          )
+        "
+        :aria-pressed="isSelected(bucket.key)"
         @click="toggle(bucket.key)"
       >
         <span class="truncate">{{ bucket.key }}</span>
-        <span class="text-muted-foreground">{{ bucket.doc_count }}</span>
+        <span class="text-muted-foreground">{{
+          bucket.doc_count < 0 ? 'Selected' : bucket.doc_count
+        }}</span>
       </button>
     </div>
   </div>

@@ -54,6 +54,25 @@ describe('document view controls', () => {
     expect(grid.get('.document-list-main').attributes('aria-pressed')).toBe('true')
     grid.unmount()
   })
+  it('renders escaped search excerpts in the list and keeps metadata accessible', async () => {
+    const grid = mountGrid()
+    await grid.setProps({
+      searchTerm: 'invoice',
+      documents: [
+        {
+          _id: 'excerpt',
+          _source: { title: 'Invoice', text: '', docType: 'invoice', date: '2026-01-01' },
+          highlight: { text: ['Found <em>invoice</em> <img src=x onerror=alert(1)>'] }
+        }
+      ]
+    })
+    expect(grid.get('mark').text()).toBe('invoice')
+    expect(grid.find('img').exists()).toBe(false)
+    expect(grid.text()).toContain('<img src=x onerror=alert(1)>')
+    expect(grid.find('[aria-label="Type: invoice"]').exists()).toBe(true)
+    expect(grid.find('[aria-label^="Document date:"]').exists()).toBe(true)
+    grid.unmount()
+  })
   it('remembers the view and lets keyboard arrows focus cards without intercepting controls', async () => {
     const grid = mountGrid()
     await grid.get('[aria-label="Grid view"]').trigger('click')

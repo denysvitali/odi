@@ -55,10 +55,10 @@ useKeyboardShortcuts([
   },
   {
     key: 'Escape',
-    description: 'Close dialogs',
+    description: 'Close command palette',
+    when: () => showPalette.value,
     handler: () => {
-      if (showPalette.value) showPalette.value = false
-      else if (showShortcuts.value) showShortcuts.value = false
+      showPalette.value = false
     },
     allowInInput: true
   },

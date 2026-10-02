@@ -15,14 +15,21 @@ export interface Shortcut {
 }
 
 function isTypingTarget(e: KeyboardEvent): boolean {
-  const target = e.target as HTMLElement | null
-  if (!target) return false
+  const target = e.target
+  if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    target.isContentEditable ||
+    !!target.closest('[role=combobox]')
+  )
 }
 
 export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
   const handler = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.isComposing) return
     const typing = isTypingTarget(e)
     for (const s of shortcuts) {
       if (typing && !s.allowInInput) continue

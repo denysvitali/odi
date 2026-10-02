@@ -61,23 +61,12 @@ func runPDF(cmd *cobra.Command, args []string) error {
 	log := logrus.StandardLogger()
 	inputDir := args[0]
 
-	opts := []indexer.Option{
-		indexer.WithOpenSearchUsername(GetString(cmd, FlagOsUsername)),
-		indexer.WithOpenSearchPassword(GetString(cmd, FlagOsPassword)),
-		indexer.WithOpenSearchIndex(GetString(cmd, FlagOsIndex)),
-		indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)),
-	}
-	if GetBool(cmd, FlagOsSkipTLS) {
-		opts = append(opts, indexer.WithOpenSearchSkipTLS())
-	}
-
 	llmClient, err := BuildLLMClient(cmd)
 	if err != nil {
 		return fmt.Errorf("configure LLM: %w", err)
 	}
-	if llmClient != nil {
-		opts = append(opts, indexer.WithLLMClient(llmClient))
-	}
+	opts := commandIndexerOptions(cmd, llmClient)
+	opts = append(opts, indexer.WithOcrApiCAPath(GetString(cmd, FlagOcrCaPath)))
 
 	idx, err := indexer.New(
 		GetString(cmd, FlagOsAddr),

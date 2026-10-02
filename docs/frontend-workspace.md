@@ -15,9 +15,13 @@ search terms; only share them with people who should see those terms. Document a
 configured API authentication.
 
 Choose **Save search**, give it a name, and save it on the device. The overview can reopen or remove
-saved searches. Up to twelve searches are stored in this browser's local storage, including their
+saved searches, or rename them without changing their query and filters. Up to twelve searches are stored in this browser's local storage, including their
 filters. They are not synced to other devices, and clearing browser storage removes them. Storage
 failures are reported instead of claiming the search was saved.
+
+Mobile search filters use a keyboard-accessible drawer with focus trapping and Escape dismissal.
+Selected filters stay available when facet suggestions are missing. Barcode presence supports both
+with-barcode and without-barcode searches.
 
 ## Browsing
 
@@ -26,6 +30,11 @@ only the documents currently loaded, not the archive-wide server order. Load mor
 more documents. The overview's recent listing starts in list view. Row actions open document details,
 star documents, or select them when bulk selection is enabled. Grid cards support keyboard activation
 and arrow navigation while the cards have focus.
+
+Favorites load saved document IDs directly, including documents outside the first archive page.
+Individual failures leave the remaining favorites available and can be retried. Search results in
+list view display sanitized matching snippets. Upcoming deadlines are grouped into the next seven
+days, the next thirty days, and later dates.
 
 The desktop sidebar exposes every application route. On phones, the navigation button opens a
 keyboard-accessible drawer with focus trapping and Escape dismissal. The header retains search,
@@ -40,7 +49,7 @@ Run from `frontend/`:
 pnpm exec vitest run --maxWorkers=2
 pnpm run lint
 pnpm run build
-pnpm exec playwright test e2e/workspace.spec.ts
+pnpm exec playwright test
 ```
 
 The browser cases use synthetic API fixtures and run against the built frontend at desktop and phone

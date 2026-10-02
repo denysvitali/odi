@@ -65,7 +65,7 @@ export function useSavedSearches() {
       error.value = ''
       return true
     } catch {
-      error.value = 'Browser storage is unavailable. This search was not saved.'
+      error.value = 'Browser storage is unavailable. Your changes were not saved.'
       return false
     }
   }
@@ -95,9 +95,26 @@ export function useSavedSearches() {
     ])
   }
 
+  function rename(id: string, name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      error.value = 'Enter a name for this saved search.'
+      return false
+    }
+    if (!searches.value.some((item) => item.id === id)) {
+      error.value = 'This saved search is no longer available.'
+      return false
+    }
+    return persist(
+      searches.value.map((item) =>
+        item.id === id ? { ...item, name: trimmed.slice(0, 80) } : item
+      )
+    )
+  }
+
   function remove(id: string) {
     return persist(searches.value.filter((item) => item.id !== id))
   }
 
-  return { searches, error, save, remove }
+  return { searches, error, save, rename, remove }
 }

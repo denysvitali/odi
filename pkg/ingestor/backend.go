@@ -1,15 +1,9 @@
 package ingestor
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"time"
 
-	"github.com/sirupsen/logrus"
-
-	"github.com/denysvitali/odi/pkg/contentdigest"
 	"github.com/denysvitali/odi/pkg/indexer"
 	"github.com/denysvitali/odi/pkg/models"
 	"github.com/denysvitali/odi/pkg/storage/model"
@@ -60,68 +54,7 @@ func NewLocalBackend(config Config) (*LocalBackend, error) {
 }
 
 func (b *LocalBackend) ProcessPage(ctx context.Context, page models.ScannedPage) error {
-	pageData, err := io.ReadAll(page.Reader)
-	if err != nil {
-		return fmt.Errorf("read page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-	}
-
-	page.ContentDigest = contentdigest.Sum(pageData)
-	reservation, err := b.idx.ReserveContentDigest(ctx, page.ContentDigest, page.ID())
-	if err != nil {
-		return fmt.Errorf("reserve content digest scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-	}
-	if !reservation.Reserved {
-		log.Infof("scan=%s seq=%d duplicate of %s", page.ScanID, page.SequenceID, reservation.ExistingDocumentID)
-		return nil
-	}
-
-	if b.storage != nil {
-		err = b.storage.Store(ctx, models.ScannedPage{
-			Reader:        bytes.NewReader(pageData),
-			ScanID:        page.ScanID,
-			SequenceID:    page.SequenceID,
-			ContentDigest: page.ContentDigest,
-		})
-		if err != nil {
-			if releaseErr := b.releaseContentDigest(ctx, page); releaseErr != nil {
-				log.Warnf("scan=%s seq=%d: unable to release content digest after storage failure: %v", page.ScanID, page.SequenceID, releaseErr)
-			}
-			return fmt.Errorf("store page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-		}
-	}
-
-	page.Reader = bytes.NewReader(pageData)
-	if err := b.idx.Index(ctx, page); err != nil {
-		// Retain any stored blob for reindex recovery. An index request can
-		// commit before its response is lost, so deleting here is unsafe.
-		if b.storage != nil {
-			log.WithFields(logrus.Fields{
-				"event":      "orphan_blob",
-				"scanID":     page.ScanID,
-				"sequenceID": page.SequenceID,
-				"digest":     page.ContentDigest,
-			}).Error("indexing failed; blob retained for reindex recovery")
-		}
-
-		if releaseErr := b.releaseContentDigest(ctx, page); releaseErr != nil {
-			log.WithFields(logrus.Fields{
-				"event":      "orphan_blob",
-				"scanID":     page.ScanID,
-				"sequenceID": page.SequenceID,
-				"digest":     page.ContentDigest,
-				"releaseErr": releaseErr.Error(),
-			}).Error("unable to release content digest reservation after index failure")
-		}
-		return fmt.Errorf("index page scan=%s seq=%d: %w", page.ScanID, page.SequenceID, err)
-	}
-	return nil
-}
-
-// Cleanup must still run when the operation failed because its context was canceled.
-func (b *LocalBackend) releaseContentDigest(ctx context.Context, page models.ScannedPage) error {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-	return b.idx.ReleaseContentDigest(cleanupCtx, page.ContentDigest, page.ID())
+	return processLocalPage(ctx, b.idx, b.storage, page)
 }
 
 func (b *LocalBackend) Flush(_ context.Context) error { return nil }
