@@ -14,12 +14,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const classes = computed(() =>
-  cn(
-    'mx-auto w-full',
-    props.fullWidth ? 'max-w-none' : 'max-w-7xl',
-    'px-4 sm:px-6 lg:px-8',
-    props.class
-  )
+  cn('mx-auto w-full', props.fullWidth ? 'max-w-none' : 'max-w-7xl', 'min-w-0', props.class)
 )
 </script>
 

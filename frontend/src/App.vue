@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import AppHeader from '@/components/layout/AppHeader.vue'
+import AppSidebar from '@/components/layout/AppSidebar.vue'
 import ErrorBoundary from '@/components/error/ErrorBoundary.vue'
 import NetworkBanner from '@/components/layout/NetworkBanner.vue'
 import ShortcutsDialog from '@/components/layout/ShortcutsDialog.vue'
@@ -123,31 +124,41 @@ watch(
     >
       Skip to content
     </a>
-    <AppHeader @open-palette="showPalette = true" @open-shortcuts="showShortcuts = true" />
-    <NetworkBanner />
+    <div class="desktop-navigation">
+      <AppSidebar @open-palette="showPalette = true" @open-shortcuts="showShortcuts = true" />
+    </div>
+    <div class="archive-body">
+      <AppHeader @open-palette="showPalette = true" @open-shortcuts="showShortcuts = true" />
+      <NetworkBanner />
 
-    <main id="main" class="min-h-[calc(100vh-4rem)]">
-      <div class="p-4 lg:p-8">
-        <ErrorBoundary>
-          <RouterView v-slot="{ Component }">
-            <Transition
-              mode="out-in"
-              enter-active-class="transition-all duration-300 ease-out"
-              leave-active-class="transition-all duration-200 ease-in"
-              enter-from-class="opacity-0 translate-y-2"
-              leave-to-class="opacity-0 -translate-y-2"
-            >
-              <component :is="Component" />
-            </Transition>
-          </RouterView>
-        </ErrorBoundary>
-      </div>
-    </main>
+      <main id="main" class="min-h-[calc(100vh-4rem)]">
+        <div class="archive-page">
+          <ErrorBoundary>
+            <RouterView v-slot="{ Component }">
+              <Transition
+                mode="out-in"
+                enter-active-class="transition-opacity duration-150 ease-out"
+                leave-active-class="transition-opacity duration-100 ease-in"
+                enter-from-class="opacity-0"
+                leave-to-class="opacity-0"
+              >
+                <component :is="Component" />
+              </Transition>
+            </RouterView>
+          </ErrorBoundary>
+        </div>
+      </main>
+    </div>
 
     <CommandPalette
       :open="showPalette"
       @update:open="showPalette = $event"
-      @show-shortcuts="() => { showPalette = false; showShortcuts = true }"
+      @show-shortcuts="
+        () => {
+          showPalette = false
+          showShortcuts = true
+        }
+      "
       @select-document="handleSelectDocument"
     />
     <DocumentDetailSheet v-model:open="sheetOpen" :document="selectedDocument" />

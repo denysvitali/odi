@@ -1,38 +1,41 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   /* Font Family - System fonts (SF Pro style) */
-  --font-family-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-family-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, system-ui, sans-serif;
 
-  /* Colors - Light Mode (Apple-inspired) */
-  --color-background: #ffffff;
-  --color-foreground: #1a1a1a;
+  /* Paper surfaces and forest accents. */
+  --color-background: #fafbf8;
+  --color-foreground: #26332b;
   --color-card: #ffffff;
-  --color-card-foreground: #1a1a1a;
-  --color-primary: #007aff;
+  --color-card-foreground: #26332b;
+  --color-primary: #38644b;
   --color-primary-foreground: #ffffff;
-  --color-secondary: #f5f5f7;
-  --color-secondary-foreground: #1a1a1a;
-  --color-muted: #f5f5f7;
-  --color-muted-foreground: #8e8e93;
-  --color-accent: #007aff;
-  --color-accent-foreground: #ffffff;
-  --color-destructive: #ff3b30;
-  --color-destructive-foreground: #ffffff;
-  --color-border: rgba(0, 0, 0, 0.1);
-  --color-input: rgba(0, 0, 0, 0.1);
-  --color-ring: #007aff;
+  --color-secondary: #edf0e8;
+  --color-secondary-foreground: #26332b;
+  --color-muted: #edf0e8;
+  --color-muted-foreground: #69776c;
+  --color-accent: #38644b;
+  --color-accent-foreground: #fafbf8;
+  --color-destructive: #be3c37;
+  --color-destructive-foreground: #fafbf8;
+  --color-border: #dfe5dc;
+  --color-input: #dfe5dc;
+  --color-ring: #38644b;
 
   /* Apple Colors */
-  --color-apple-blue: #007aff;
-  --color-apple-red: #ff3b30;
+  --color-apple-blue: #38644b;
+  --color-apple-red: #be3c37;
   --color-apple-green: #34c759;
   --color-apple-yellow: #ffcc00;
   --color-apple-orange: #ff9500;
   --color-apple-purple: #af52de;
   --color-apple-pink: #ff2d55;
   --color-apple-teal: #5ac8fa;
-  --color-apple-gray: #8e8e93;
+  --color-apple-gray: #69776c;
   --color-apple-gray-2: #aeaeb2;
   --color-apple-gray-3: #c7c7cc;
   --color-apple-gray-4: #d1d1d6;
@@ -73,40 +76,31 @@
 
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 
-/* Dark Mode Colors */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: #0a0a0a;
-    --color-foreground: #fafafa;
-    --color-card: #1c1c1e;
-    --color-card-foreground: #fafafa;
-    --color-secondary: #2c2c2e;
-    --color-secondary-foreground: #fafafa;
-    --color-muted: #2c2c2e;
-    --color-muted-foreground: #8e8e93;
-    --color-border: rgba(255, 255, 255, 0.1);
-    --color-input: rgba(255, 255, 255, 0.15);
-  }
-}
-
-/* Manual dark mode class support */
+/* The theme composable resolves system preferences into this class. */
 .dark {
-  --color-background: #0a0a0a;
-  --color-foreground: #fafafa;
-  --color-card: #1c1c1e;
-  --color-card-foreground: #fafafa;
-  --color-secondary: #2c2c2e;
-  --color-secondary-foreground: #fafafa;
-  --color-muted: #2c2c2e;
-  --color-muted-foreground: #8e8e93;
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-input: rgba(255, 255, 255, 0.15);
+  color-scheme: dark;
+  --color-background: #151e19;
+  --color-foreground: #e6ece3;
+  --color-card: #1c2820;
+  --color-card-foreground: #e6ece3;
+  --color-primary: #a6ce9f;
+  --color-primary-foreground: #182a1c;
+  --color-secondary: #28372c;
+  --color-secondary-foreground: #e6ece3;
+  --color-muted: #253229;
+  --color-muted-foreground: #a6b5a7;
+  --color-accent: #a6ce9f;
+  --color-accent-foreground: #182a1c;
+  --color-border: #344338;
+  --color-input: #405346;
+  --color-ring: #a6ce9f;
+  --color-destructive: #ffaaa4;
 }
 
 /* Base Styles */
@@ -255,13 +249,13 @@ body {
 }
 
 /* Animation utility classes for reka-ui/radix */
-[data-state="open"].animate-in {
+[data-state='open'].animate-in {
   animation-duration: 300ms;
   animation-timing-function: ease-out;
   animation-fill-mode: forwards;
 }
 
-[data-state="closed"].animate-out {
+[data-state='closed'].animate-out {
   animation-duration: 300ms;
   animation-timing-function: ease-in;
   animation-fill-mode: forwards;

@@ -1,89 +1,85 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-import { Home, FileText, Upload, Star, Keyboard, Command, Shield, MessageSquare, Share2 } from 'lucide-vue-next'
+import { useRoute } from 'vue-router'
+import {
+  Archive,
+  LayoutDashboard,
+  Files,
+  Star,
+  Upload,
+  MessageSquare,
+  Share2,
+  Settings2,
+  ArrowUpRight,
+  Keyboard,
+  Leaf
+} from 'lucide-vue-next'
 import { useFavorites } from '@/composables/useFavorites'
 
-const router = useRouter()
+const emit = defineEmits<{ 'open-palette': []; 'open-shortcuts': []; navigate: [] }>()
+const route = useRoute()
 const { count } = useFavorites()
-
-const emit = defineEmits<{
-  'open-palette': []
-  'open-shortcuts': []
-}>()
-
-const navItems = [
-  { name: 'Home', path: '/', icon: Home },
-  { name: 'Documents', path: '/documents', icon: FileText },
-  { name: 'Favorites', path: '/favorites', icon: Star },
-  { name: 'Chat', path: '/chat', icon: MessageSquare },
-  { name: 'Shares', path: '/shares', icon: Share2 },
-  { name: 'Upload', path: '/upload', icon: Upload },
-  { name: 'Admin', path: '/admin', icon: Shield }
+const groups = [
+  {
+    title: 'Workspace',
+    items: [
+      { name: 'Overview', path: '/', icon: LayoutDashboard },
+      { name: 'All documents', path: '/documents', icon: Files },
+      { name: 'Favorites', path: '/favorites', icon: Star }
+    ]
+  },
+  {
+    title: 'Tools',
+    items: [
+      { name: 'Ask your archive', path: '/chat', icon: MessageSquare },
+      { name: 'Shared links', path: '/shares', icon: Share2 },
+      { name: 'Administration', path: '/admin', icon: Settings2 }
+    ]
+  }
 ]
-
-const isActive = (path: string) => router.currentRoute.value.path === path
+const isActive = (path: string) => (path === '/' ? route.path === '/' : route.path.startsWith(path))
 </script>
 
 <template>
-  <aside class="fixed left-0 top-16 z-40 hidden h-[calc(100vh-4rem)] w-64 flex-col glass lg:flex" aria-label="Sidebar">
-    <nav class="flex-1 overflow-auto p-4">
-      <div class="space-y-1">
+  <aside class="archive-sidebar" aria-label="Archive navigation">
+    <RouterLink to="/" class="archive-brand" @click="emit('navigate')">
+      <span class="brand-symbol"><Archive :size="21" aria-hidden="true" /></span>
+      <span>odi<span class="brand-dot">.</span><small>YOUR DOCUMENT WORKSPACE</small></span>
+    </RouterLink>
+    <div class="sidebar-workspace">
+      <span class="workspace-avatar">P</span>
+      <div>Personal archive<small>Your documents, organized.</small></div>
+    </div>
+    <nav class="sidebar-nav" aria-label="Primary">
+      <div v-for="group in groups" :key="group.title" class="nav-group">
+        <p class="eyebrow">{{ group.title }}</p>
         <RouterLink
-          v-for="item in navItems"
+          v-for="item in group.items"
           :key="item.path"
           :to="item.path"
-          class="flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200"
-          :class="[
-            isActive(item.path)
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-          ]"
+          class="sidebar-link"
+          :class="{ 'is-active': isActive(item.path) }"
+          :aria-current="isActive(item.path) ? 'page' : undefined"
+          @click="emit('navigate')"
         >
-          <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
+          <component :is="item.icon" :size="18" aria-hidden="true" />
           {{ item.name }}
-          <span
-            v-if="item.name === 'Favorites' && count > 0"
-            class="ml-auto rounded-full bg-secondary px-1.5 py-0.5 text-xs"
-          >
-            {{ count }}
-          </span>
-          <span
-            v-else-if="isActive(item.path)"
-            class="ml-auto h-1.5 w-1.5 rounded-full bg-primary"
-            aria-hidden="true"
-          />
+          <span v-if="item.path === '/favorites' && count" class="nav-count">{{ count }}</span>
         </RouterLink>
       </div>
-
-      <div class="mt-8">
-        <h3 class="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Quick Actions
-        </h3>
-        <div class="mt-2 space-y-1">
-          <button
-            class="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-muted-foreground transition-all duration-200 hover:bg-secondary hover:text-foreground"
-            type="button"
-            @click="emit('open-palette')"
-          >
-            <Command class="h-4 w-4" aria-hidden="true" />
-            Command palette
-            <kbd class="ml-auto hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium xl:inline-block">
-              ⌘K
-            </kbd>
-          </button>
-          <button
-            class="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium text-muted-foreground transition-all duration-200 hover:bg-secondary hover:text-foreground"
-            type="button"
-            @click="emit('open-shortcuts')"
-          >
-            <Keyboard class="h-4 w-4" aria-hidden="true" />
-            Keyboard shortcuts
-            <kbd class="ml-auto hidden rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium xl:inline-block">
-              ?
-            </kbd>
-          </button>
-        </div>
-      </div>
     </nav>
+    <div class="sidebar-bottom">
+      <RouterLink to="/upload" class="sidebar-upload" @click="emit('navigate')"
+        ><Upload :size="17" aria-hidden="true" /> Add documents
+        <ArrowUpRight :size="16" class="ml-auto" aria-hidden="true"
+      /></RouterLink>
+      <div class="privacy-note">
+        <Leaf :size="17" aria-hidden="true" />
+        <div>A little less paper.<small>A little more peace of mind.</small></div>
+      </div>
+      <button type="button" class="sidebar-shortcut" @click="emit('open-shortcuts')">
+        <Keyboard :size="16" aria-hidden="true" /> Keyboard shortcuts <kbd>?</kbd>
+      </button>
+      <p class="sidebar-version">OPEN DOCUMENT INDEXER</p>
+    </div>
   </aside>
 </template>

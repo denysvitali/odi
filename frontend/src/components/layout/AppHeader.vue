@@ -1,136 +1,80 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { Menu, X, FileText, Home, Upload, Star, Sun, Moon, Command, Keyboard, Shield } from 'lucide-vue-next'
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { Menu, Search, Sun, Moon, Plus, ChevronRight } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
-import { useFavorites } from '@/composables/useFavorites'
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import AppSidebar from './AppSidebar.vue'
 import { useTheme } from '@/composables/useTheme'
 
-const emit = defineEmits<{
-  'open-palette': []
-  'open-shortcuts': []
-}>()
-
-const router = useRouter()
-const { count } = useFavorites()
+const emit = defineEmits<{ 'open-palette': []; 'open-shortcuts': [] }>()
+const route = useRoute()
 const { toggleTheme, isDark } = useTheme()
-const mobileMenuOpen = ref(false)
-
-const navItems = [
-  { name: 'Home', path: '/', icon: Home },
-  { name: 'Documents', path: '/documents', icon: FileText },
-  { name: 'Favorites', path: '/favorites', icon: Star },
-  { name: 'Upload', path: '/upload', icon: Upload },
-  { name: 'Admin', path: '/admin', icon: Shield }
-]
-
-const isActive = (path: string) => router.currentRoute.value.path === path
+const menuOpen = ref(false)
+watch(
+  () => route.fullPath,
+  () => {
+    menuOpen.value = false
+  }
+)
+function openTool(tool: 'open-palette' | 'open-shortcuts') {
+  menuOpen.value = false
+  if (tool === 'open-palette') emit('open-palette')
+  else emit('open-shortcuts')
+}
 </script>
 
 <template>
-  <header class="sticky top-0 z-50 w-full glass">
-    <div class="flex h-16 items-center justify-between px-4 lg:px-8">
-      <div class="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="lg:hidden"
-          aria-label="Toggle menu"
-          :aria-expanded="mobileMenuOpen"
-          @click="mobileMenuOpen = !mobileMenuOpen"
-        >
-          <Menu v-if="!mobileMenuOpen" class="h-5 w-5" aria-hidden="true" />
-          <X v-else class="h-5 w-5" aria-hidden="true" />
-        </Button>
-        <RouterLink to="/" class="flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-apple-purple text-primary-foreground shadow-sm">
-            <FileText class="h-4 w-4" aria-hidden="true" />
-          </div>
-          <span class="text-lg font-semibold tracking-tight">ODI</span>
-        </RouterLink>
-      </div>
-
-      <nav class="hidden lg:flex items-center gap-1" aria-label="Primary">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="relative px-4 py-2 text-sm font-medium transition-colors rounded-lg"
-          :class="[
-            isActive(item.path)
-              ? 'text-foreground bg-secondary'
-              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-          ]"
-        >
-          <span class="flex items-center gap-2">
-            <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
-            {{ item.name }}
-            <span
-              v-if="item.name === 'Favorites' && count > 0"
-              class="min-w-4 rounded-full bg-muted px-1.5 py-0.5 text-center text-[10px] leading-none text-muted-foreground"
-            >
-              {{ count }}
-            </span>
-          </span>
-        </RouterLink>
-      </nav>
-
-      <div class="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Open command palette"
-          class="text-muted-foreground"
-          @click="emit('open-palette')"
-        >
-          <Command class="h-5 w-5" aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Show keyboard shortcuts"
-          class="hidden text-muted-foreground sm:inline-flex"
-          @click="emit('open-shortcuts')"
-        >
-          <Keyboard class="h-5 w-5" aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
-          class="text-muted-foreground"
-          @click="toggleTheme"
-        >
-          <Sun v-if="isDark" class="h-5 w-5" aria-hidden="true" />
-          <Moon v-else class="h-5 w-5" aria-hidden="true" />
-        </Button>
-      </div>
+  <header class="archive-header">
+    <div class="flex min-w-0 items-center gap-3">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="lg:hidden"
+        aria-label="Open navigation"
+        :aria-expanded="menuOpen"
+        @click="menuOpen = true"
+        ><Menu :size="20"
+      /></Button>
+      <span class="hidden text-sm text-muted-foreground sm:inline">Personal archive</span>
+      <ChevronRight :size="14" class="hidden text-muted-foreground sm:block" aria-hidden="true" />
+      <span class="truncate text-sm font-medium">{{
+        route.path === '/' ? 'Overview' : route.meta.title
+      }}</span>
     </div>
-
-    <div v-show="mobileMenuOpen" class="lg:hidden border-t border-border">
-      <nav class="flex flex-col p-4 space-y-1" aria-label="Mobile">
-        <RouterLink
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors"
-          :class="[
-            isActive(item.path)
-              ? 'bg-secondary text-foreground'
-              : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground'
-          ]"
-          @click="mobileMenuOpen = false"
-        >
-          <component :is="item.icon" class="h-4 w-4" aria-hidden="true" />
-          {{ item.name }}
-          <span
-            v-if="item.name === 'Favorites' && count > 0"
-            class="ml-auto min-w-4 rounded-full bg-muted px-1.5 py-0.5 text-center text-[10px] leading-none text-muted-foreground"
-          >
-            {{ count }}
-          </span>
-        </RouterLink>
-      </nav>
+    <div class="flex items-center gap-2">
+      <button
+        type="button"
+        class="header-search"
+        aria-label="Open command palette"
+        @click="emit('open-palette')"
+      >
+        <Search :size="16" aria-hidden="true" /><span class="hidden sm:inline"
+          >Jump to anything…</span
+        ><kbd class="hidden md:inline">Ctrl / ⌘ K</kbd>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+        @click="toggleTheme"
+        ><Sun v-if="isDark" :size="18" /><Moon v-else :size="18"
+      /></Button>
+      <RouterLink to="/upload" class="header-add"
+        ><Plus :size="16" aria-hidden="true" /><span class="hidden sm:inline">Add documents</span
+        ><span class="sr-only sm:hidden">Add documents</span></RouterLink
+      >
     </div>
   </header>
+  <Sheet v-model:open="menuOpen">
+    <SheetContent side="left" class="mobile-navigation p-0">
+      <SheetTitle class="sr-only">Archive navigation</SheetTitle
+      ><SheetDescription class="sr-only">Navigate your document workspace.</SheetDescription>
+      <AppSidebar
+        @navigate="menuOpen = false"
+        @open-palette="openTool('open-palette')"
+        @open-shortcuts="openTool('open-shortcuts')"
+      />
+    </SheetContent>
+  </Sheet>
 </template>
