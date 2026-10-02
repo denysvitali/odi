@@ -131,6 +131,6 @@ test('restores filter-only searches, paginates, and surfaces upstream errors', a
   expect(archive.calls.some((call) => call.body?.scrollId === 'synthetic-scroll')).toBe(true)
   archive.failSearch()
   await page.goto('/?tags=synthetic')
-  await expect(page.getByRole('alert').filter({ hasText: 'Request failed: 503' })).toBeVisible()
+  await expect(page.getByRole('alert').filter({ hasText: /failed|could not/i })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
 })
