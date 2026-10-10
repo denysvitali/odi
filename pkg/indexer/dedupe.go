@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/opensearch-project/opensearch-go/v4/opensearchapi"
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // ErrDigestAlreadyReserved indicates that a content digest was already reserved
