@@ -1,5 +1,5 @@
 # Build stage
-FROM node:24.21.0-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 
 # Install pnpm (align with CI version)
 RUN npm i -g pnpm@11.10.0
