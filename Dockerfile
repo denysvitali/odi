@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.24
 
-FROM golang:1.26.11-alpine AS builder
+FROM golang:1.27.4-alpine AS builder
 ENV CGO_ENABLED=0 \
     GOFLAGS="-buildvcs=false -mod=mod"
 
