@@ -78,7 +78,7 @@ The Helm chart lives in a separate repository.
 
 | Tool | Purpose |
 |---|---|
-| Go 1.26.6 | Backend build / tests |
+| Go 1.26.11 | Backend build / tests |
 | Node 24.21.0 and pnpm 11.10.0 | Frontend build (same versions as CI and Docker) |
 | Docker + Compose | OpenSearch, OpenSearch Dashboards, PostgreSQL |
 | [ocr-server](https://github.com/denysvitali/ocr-server) | Android ML Kit OCR endpoint reachable from the backend |

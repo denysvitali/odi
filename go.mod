@@ -1,6 +1,6 @@
 module github.com/denysvitali/odi
 
-go 1.26.6
+go 1.26.11
 
 require (
 	charm.land/lipgloss/v2 v2.0.3
