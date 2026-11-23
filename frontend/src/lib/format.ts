@@ -42,17 +42,3 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
-
-export function formatRelative(date: Date): string {
-  const diffMs = Date.now() - date.getTime()
-  const sec = Math.floor(diffMs / 1000)
-  if (sec < 5) return 'just now'
-  if (sec < 60) return `${sec}s ago`
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
-  return formatDate(date)
-}

@@ -1,53 +1,71 @@
-import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import type { SearchFilters } from '@/api/client'
 
-export function parseArchiveQuery(query: LocationQuery) {
+const LIST_KEYS = ['companies', 'docTypes', 'tags'] as const
+const DATE_KEYS = ['dateFrom', 'dateTo'] as const
+
+/** Parse the search term and filters encoded in a URL query string. */
+export function parseArchiveQuery(params: URLSearchParams) {
   const filters: SearchFilters = {}
-  for (const key of ['companies', 'docTypes', 'tags'] as const) {
-    const value = query[key]
-    if (typeof value === 'string' && value) {
-      if (value.startsWith('[')) {
-        try {
-          const parsed: unknown = JSON.parse(value)
-          if (Array.isArray(parsed))
-            filters[key] = parsed.filter(
-              (item): item is string => typeof item === 'string' && !!item
-            )
-        } catch {
-          /* Ignore malformed filter arrays. */
-        }
-      } else filters[key] = value.split(',').filter(Boolean)
-    }
+  for (const key of LIST_KEYS) {
+    const value = single(params, key)
+    if (!value) continue
+    if (value.startsWith('[')) {
+      try {
+        const parsed: unknown = JSON.parse(value)
+        if (Array.isArray(parsed))
+          filters[key] = parsed.filter((item): item is string => typeof item === 'string' && !!item)
+      } catch {
+        /* Ignore malformed filter arrays. */
+      }
+    } else filters[key] = value.split(',').filter(Boolean)
   }
-  for (const key of ['dateFrom', 'dateTo'] as const) {
-    if (typeof query[key] === 'string' && query[key]) filters[key] = query[key]
+  for (const key of DATE_KEYS) {
+    const value = single(params, key)
+    if (value) filters[key] = value
   }
-  if (query.hasBarcode === 'true' || query.hasBarcode === 'false') {
-    filters.hasBarcode = query.hasBarcode === 'true'
-  }
-  if (typeof query.title === 'string' && query.title) filters.titleFilter = query.title
-  return { term: typeof query.q === 'string' ? query.q : '', filters }
+  const barcode = single(params, 'hasBarcode')
+  if (barcode === 'true' || barcode === 'false') filters.hasBarcode = barcode === 'true'
+  const title = single(params, 'title')
+  if (title) filters.titleFilter = title
+  return { term: single(params, 'q') ?? '', filters }
 }
 
-export function archiveQuery(term: string, filters: SearchFilters = {}): LocationQueryRaw {
-  const query: LocationQueryRaw = {}
-  if (term.trim()) query.q = term.trim()
-  for (const key of ['companies', 'docTypes', 'tags'] as const) {
-    if (filters[key]?.length) {
-      const values = filters[key]
-      query[key] = values.some((value) => value.includes(',') || value.startsWith('['))
+/** Encode a search term and filters as URL query params (empty values are dropped). */
+export function archiveQuery(term: string, filters: SearchFilters = {}): URLSearchParams {
+  const query = new URLSearchParams()
+  if (term.trim()) query.set('q', term.trim())
+  for (const key of LIST_KEYS) {
+    const values = filters[key]
+    if (!values?.length) continue
+    query.set(
+      key,
+      values.some((value) => value.includes(',') || value.startsWith('['))
         ? JSON.stringify(values)
         : values.join(',')
-    }
+    )
   }
-  for (const key of ['dateFrom', 'dateTo'] as const) {
-    if (filters[key]) query[key] = filters[key]
+  for (const key of DATE_KEYS) {
+    const value = filters[key]
+    if (value) query.set(key, value)
   }
-  if (filters.hasBarcode !== undefined) query.hasBarcode = String(filters.hasBarcode)
-  if (filters.titleFilter?.trim()) query.title = filters.titleFilter.trim()
+  if (filters.hasBarcode !== undefined) query.set('hasBarcode', String(filters.hasBarcode))
+  if (filters.titleFilter?.trim()) query.set('title', filters.titleFilter.trim())
   return query
 }
 
 export function hasArchiveSearch(term: string, filters: SearchFilters) {
-  return Object.keys(archiveQuery(term, filters)).length > 0
+  return archiveQuery(term, filters).size > 0
+}
+
+export function countFilters(filters: SearchFilters) {
+  return Object.values(filters).reduce<number>(
+    (n, value) => n + (Array.isArray(value) ? value.length : value === undefined ? 0 : 1),
+    0
+  )
+}
+
+/** Repeated keys are treated as malformed rather than silently picking one. */
+function single(params: URLSearchParams, key: string): string | undefined {
+  const values = params.getAll(key)
+  return values.length === 1 && values[0] ? values[0] : undefined
 }

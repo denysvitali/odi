@@ -20,20 +20,18 @@ function isProd(): boolean {
 export const logger = {
   debug(message: string, ...rest: unknown[]): void {
     if (isProd()) return
-     
+
     console.debug(PREFIX, message, ...rest)
   },
   info(message: string, ...rest: unknown[]): void {
     if (isProd()) return
-     
+
     console.info(PREFIX, message, ...rest)
   },
   warn(message: string, ...rest: unknown[]): void {
-     
     console.warn(PREFIX, message, ...rest)
   },
   error(message: string, ...rest: unknown[]): void {
-     
     console.error(PREFIX, message, ...rest)
   }
 }

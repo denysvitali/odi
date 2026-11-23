@@ -37,7 +37,3 @@ export function parseHighlight(input: string): HighlightSegment[] {
   }
   return segments
 }
-
-export function stripHighlight(input: string): string {
-  return parseHighlight(input).map((s) => s.text).join('')
-}

@@ -1,29 +1,20 @@
-import pluginVue from 'eslint-plugin-vue'
-import vueTsEslintConfig from '@vue/eslint-config-typescript'
-import skipFormatting from '@vue/eslint-config-prettier/skip-formatting'
+import js from '@eslint/js'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
+import reactHooks from 'eslint-plugin-react-hooks'
+import prettier from 'eslint-config-prettier'
 
-export default [
+export default tseslint.config(
+  { ignores: ['dist', 'coverage', 'playwright-report', 'test-results'] },
   {
-    name: 'app/files-to-lint',
-    files: ['**/*.{ts,mts,tsx,vue}']
-  },
-  {
-    name: 'app/files-to-ignore',
-    ignores: ['**/dist/**', '**/dist-ssr/**', '**/coverage/**']
-  },
-  ...pluginVue.configs['flat/essential'],
-  ...vueTsEslintConfig(),
-  {
-    name: 'app/rules',
+    files: ['**/*.{ts,tsx}'],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    languageOptions: { globals: { ...globals.browser, ...globals.node } },
+    plugins: { 'react-hooks': reactHooks },
     rules: {
-      // Allow single-word component names in UI folder
-      'vue/multi-word-component-names': [
-        'error',
-        {
-          ignores: ['Button', 'Card', 'Input', 'Badge', 'Tooltip', 'Skeleton', 'Sheet', 'Separator', 'Tabs']
-        }
-      ]
+      ...reactHooks.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
     }
   },
-  skipFormatting
-]
+  prettier
+)

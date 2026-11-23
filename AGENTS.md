@@ -1,7 +1,7 @@
 # AGENTS.md
 
 These instructions apply to the entire repository. ODI is a privacy-first document indexer: a
-Go CLI/API performs ingestion, OCR orchestration, indexing, and storage, while a Vue SPA provides
+Go CLI/API performs ingestion, OCR orchestration, indexing, and storage, while a React SPA provides
 the search and document-management UI.
 
 ## Start Here
@@ -39,9 +39,9 @@ the search and document-management UI.
 - `zefix-tools/cmd/` contains legacy standalone commands, but `zefix-tools/pkg/zefix/` is still a
   live library imported by the main application. Do not remove or rewrite the whole subtree as
   dead code.
-- `frontend/src/api/client.ts` is the SPA's REST boundary. Views compose feature composables;
-  shared transport/domain types live under `frontend/src/types/`; Pinia stores live under
-  `frontend/src/stores/`; routing lives in `frontend/src/router/index.ts`.
+- `frontend/src/api/client.ts` is the SPA's REST boundary; `frontend/src/hooks/queries.ts` wraps it
+  in React Query hooks. Pages live in `frontend/src/pages/`, device-local state (favorites, tags,
+  saved/recent searches) in `frontend/src/stores/`, routing in `frontend/src/router.tsx`.
 - `docs/openapi.yaml` documents the API. `.github/workflows/` is the source of truth for CI,
   images, CodeQL, and Pages behavior.
 
@@ -51,7 +51,7 @@ the search and document-management UI.
   Dashboards deep links, never direct data access.
 - `internal/server/server.go:initRoutes` determines whether a handler is reachable. Adding a
   handler file alone does not expose an endpoint.
-- Frontend runtime configuration is loaded before Vue mounts into `window._settings`. Local
+- Frontend runtime configuration is loaded before React mounts into `window._settings`. Local
   values come from `frontend/public/settings.json`; the container renders `settings.json` from
   `settings.json.tpl` in `frontend/docker/entrypoint.sh`. Keep both paths functional.
 - Local ingestion reserves a content digest before optional blob storage and indexing. Preserve
@@ -120,7 +120,7 @@ change.
   environment variables. Never put real credentials in tests or fixtures.
 - Exercise success, invalid input, upstream failure, and cancellation/cleanup paths for HTTP and
   pipeline changes. Use `httptest` for backend dependencies rather than local network services.
-- `pnpm run build` includes Vue TypeScript checking; a Vite bundle alone is not sufficient
+- `pnpm run build` includes TypeScript checking; a Vite bundle alone is not sufficient
   frontend verification.
 
 ## Change Checklists
@@ -131,7 +131,7 @@ For a public API change, update all affected layers:
 2. Update the handler and adjacent Go tests, including authentication and error behavior.
 3. Update `docs/openapi.yaml`.
 4. Update `frontend/src/api/client.ts`, relevant TypeScript types, and the consuming
-   composable/store/view.
+   query hook/store/page.
 5. Add or update frontend specs.
 
 For a CLI or configuration change:
@@ -160,16 +160,14 @@ For dependency or container changes:
   Follow existing `logrus` structured logging and avoid logging document contents or secrets.
 - Keep constructors/options and interfaces consistent with the surrounding package. Add a new
   abstraction only when more than one implementation or a clear test seam needs it.
-- Frontend code uses Vue 3 Composition API with `<script setup lang="ts">`, strict TypeScript,
-  and `@` aliases from `frontend/vite.config.ts`. Reuse the API client, composables, shared types,
-  `components/ui` primitives, `cn()`, Lucide icons, and design tokens instead of issuing ad hoc
-  fetches or duplicating UI patterns. Preserve keyboard access, ARIA labeling, focus behavior,
-  and reduced-motion support.
+- Frontend code is React function components with strict TypeScript and the `@` alias. Build UI
+  from Mantine components and theme props (Tabler icons) rather than custom CSS; fetch only via
+  the hooks in `hooks/queries.ts`. Preserve keyboard access, ARIA labeling, and focus behavior.
 - Prettier uses no semicolons, single quotes, two spaces, 100-column width, and no trailing
   commas. Run `pnpm run format` only for intentional `frontend/src/` formatting; avoid unrelated
   bulk churn.
 - Treat OCR text, filenames, API payloads, settings, and LLM output as untrusted. Preserve URL
-  validation, `encodeURIComponent`, Vue escaping, and DOMPurify/text-only rendering boundaries.
+  validation, `encodeURIComponent`, React escaping, and text-only rendering (never `dangerouslySetInnerHTML`).
 
 ## Security and Data Safety
 

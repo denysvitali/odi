@@ -20,7 +20,7 @@ var errSimilarSearchFailed = errors.New("similar documents search failed")
 const similarSize = 8
 
 // similarDocument is the minimal projection of a related document returned to
-// the frontend rail. It mirrors the fields rendered by SimilarDocuments.vue.
+// the frontend rail. It mirrors the fields the frontend renders for a document hit.
 type similarDocument struct {
 	ID      string `json:"id"`
 	Title   string `json:"title"`

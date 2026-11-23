@@ -30,7 +30,7 @@ flowchart LR
         BLOB[("Blob storage<br/>B2 encrypted / FS")]
     end
 
-    SPA([Frontend · Vue 3 SPA])
+    SPA([Frontend · React SPA])
     OSD([OpenSearch Dashboards])
 
     Scanner -- eSCL --> ING
@@ -64,7 +64,7 @@ Key points:
 | Path | Language | Purpose |
 |---|---|---|
 | `main.go`, `internal/`, `pkg/` | Go | REST API, ingestion, indexing, OCR orchestration, storage |
-| [`frontend/`](frontend/) | TypeScript · Vue 3 · Vite | Search UI, document viewer |
+| [`frontend/`](frontend/) | TypeScript · React · Mantine · Vite | Search UI, document viewer |
 | [`zefix-tools/`](zefix-tools/) | Go | Legacy standalone Zefix CLIs (the same functionality is exposed by `odi zefix-import` / `odi zefix-find`) |
 
 Published container images (on every push to `main` and on tags):
@@ -151,7 +151,7 @@ odi/
 ├── main.go               CLI entry point
 ├── internal/             cli/ (Cobra commands) + server/ (Gin REST API)
 ├── pkg/                  indexer, ingestor, ocrclient, storage, zefix, crypt, ...
-├── frontend/             Vue 3 + Vite SPA
+├── frontend/             React + Mantine SPA (Vite)
 ├── zefix-tools/          Legacy standalone Zefix CLIs (kept for reference)
 ├── docker-compose.yml    OpenSearch, Dashboards, PostgreSQL
 ├── Makefile              Unified build/test/lint targets

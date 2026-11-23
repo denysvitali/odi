@@ -44,15 +44,13 @@ async function setup(page: Page, fail = false) {
 test('saves a filter-only search, restores it after reload, and removes it', async ({ page }) => {
   const queries = await setup(page)
   await page.goto('/')
-  await page.getByRole('link', { name: 'Invoices Bills & payments' }).click()
+  await page.getByRole('button', { name: 'Invoices', exact: true }).click()
   await expect(page.getByRole('heading', { name: '2 results' })).toBeVisible()
   expect(queries.at(-1)).toMatchObject({ searchTerm: '', docTypes: ['invoice'] })
   await page.getByRole('button', { name: 'Save search', exact: true }).click()
   await page.getByLabel('Search name').fill('Saved invoices')
-  await page.getByRole('button', { name: 'Save on this device' }).click()
-  await expect(
-    page.getByRole('status').filter({ hasText: 'Search saved on this device.' })
-  ).toBeVisible()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByLabel('Search name')).toHaveCount(0)
   await page.getByRole('button', { name: 'Clear search', exact: true }).click()
   await page.reload()
   await page.getByRole('button', { name: 'Saved invoices', exact: true }).click()
@@ -71,27 +69,29 @@ test('supports list sorting, grid switching, navigation, dark mode, and small sc
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/')
   await expect(page.getByText('Synthetic invoice', { exact: true })).toBeVisible()
-  await page.getByLabel('Sort loaded documents').selectOption('title')
-  await expect(page.locator('.document-list-title').first()).toHaveText('Synthetic contract')
+  await page.goto('/documents')
+  await page.getByRole('button', { name: 'Sort loaded documents' }).click()
+  await page.getByRole('menuitem', { name: 'Title A–Z' }).click()
+  await expect(page.locator('.document-title').first()).toHaveText('Synthetic contract')
   await page.getByRole('button', { name: 'Grid view', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Grid view', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   )
   await page.getByRole('button', { name: 'List view', exact: true }).click()
-  await page.getByRole('button', { name: 'Switch to dark mode' }).click()
-  await expect(page.locator('html')).toHaveClass(/dark/)
-  await page.emulateMedia({ colorScheme: 'dark' })
-  await page.getByRole('button', { name: 'Switch to light mode' }).click()
-  await expect(page.locator('html')).not.toHaveClass(/dark/)
-  expect(await page.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    'rgb(250, 251, 248)'
-  )
-  if (testInfo.project.name === 'mobile') {
+  await page.goto('/')
+  const html = page.locator('html')
+  const nav = page.getByRole('navigation', { name: 'Primary', exact: true })
+  if (testInfo.project.name === 'mobile')
     await page.getByRole('button', { name: 'Open navigation' }).click()
-    await page.getByRole('dialog').getByRole('link', { name: 'All documents' }).click()
-    await expect(page.getByRole('dialog')).toHaveCount(0)
+  await nav.getByRole('button', { name: 'Switch to dark mode' }).click()
+  await expect(html).toHaveAttribute('data-mantine-color-scheme', 'dark')
+  await nav.getByRole('button', { name: 'Switch to light mode' }).click()
+  await expect(html).toHaveAttribute('data-mantine-color-scheme', 'light')
+  if (testInfo.project.name === 'mobile') {
+    await nav.getByRole('link', { name: 'All documents' }).click()
     await expect(page).toHaveURL(/\/documents$/)
+    await expect(nav).not.toBeInViewport()
     await page.setViewportSize({ width: 320, height: 740 })
   } else {
     await page

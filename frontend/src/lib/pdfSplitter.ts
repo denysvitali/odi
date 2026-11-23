@@ -22,17 +22,15 @@ export type PdfSplitProgressCallback = (currentPage: number, totalPages: number)
  * Uses OffscreenCanvas when available for better performance,
  * falling back to a regular <canvas> element otherwise.
  */
-async function renderPageToJpeg(
-  page: pdfjsLib.PDFPageProxy,
-  scale: number
-): Promise<Blob> {
+async function renderPageToJpeg(page: pdfjsLib.PDFPageProxy, scale: number): Promise<Blob> {
   const viewport = page.getViewport({ scale })
 
   // Prefer OffscreenCanvas (not available in all browsers / test envs)
   if (typeof OffscreenCanvas !== 'undefined') {
     const canvas = new OffscreenCanvas(viewport.width, viewport.height)
     const ctx = canvas.getContext('2d')!
-    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport }).promise
+    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport })
+      .promise
     return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
   }
 
@@ -76,9 +74,9 @@ export async function splitPdf(
     const message = err instanceof Error ? err.message : String(err)
     // pdfjs-dist throws specific errors for encrypted docs
     if (message.includes('password') || message.includes('encrypted')) {
-      throw new Error('This PDF is password-protected and cannot be processed.')
+      throw new Error('This PDF is password-protected and cannot be processed.', { cause: err })
     }
-    throw new Error(`Failed to read PDF: ${message}`)
+    throw new Error(`Failed to read PDF: ${message}`, { cause: err })
   }
 
   const pageCount = pdf.numPages

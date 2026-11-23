@@ -12,11 +12,11 @@ const mockGlobalWorkerOptions = { workerSrc: '' }
 
 vi.mock('pdfjs-dist', () => ({
   getDocument: mockGetDocument,
-  GlobalWorkerOptions: mockGlobalWorkerOptions,
+  GlobalWorkerOptions: mockGlobalWorkerOptions
 }))
 
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({
-  default: 'mock-worker-url.js',
+  default: 'mock-worker-url.js'
 }))
 
 // ---------------------------------------------------------------------------
@@ -28,12 +28,12 @@ function createMockCanvas() {
     width: 0,
     height: 0,
     getContext: vi.fn().mockReturnValue({
-      drawImage: vi.fn(),
+      drawImage: vi.fn()
     }),
     toBlob: vi.fn((cb: BlobCallback) => {
       const blob = new Blob(['fake-jpeg-data'], { type: 'image/jpeg' })
       cb(blob)
-    }),
+    })
   }
 }
 
@@ -54,7 +54,7 @@ function buildMockPage() {
   return {
     getViewport: vi.fn().mockReturnValue({ width: 612, height: 792 }),
     render: vi.fn().mockReturnValue({ promise: Promise.resolve() }),
-    cleanup: vi.fn(),
+    cleanup: vi.fn()
   }
 }
 
@@ -64,21 +64,21 @@ function buildMockDocument(pageCount: number) {
     numPages: pageCount,
     getPage: vi.fn().mockImplementation((num: number) => Promise.resolve(pages[num - 1])),
     destroy: vi.fn(),
-    _pages: pages,
+    _pages: pages
   }
 }
 
 function setupPdfjsMock(pageCount: number) {
   const doc = buildMockDocument(pageCount)
   mockGetDocument.mockReturnValue({
-    promise: Promise.resolve(doc),
+    promise: Promise.resolve(doc)
   })
   return doc
 }
 
 function setupPdfjsError(err: Error) {
   mockGetDocument.mockReturnValue({
-    promise: Promise.reject(err),
+    promise: Promise.reject(err)
   })
 }
 
@@ -88,15 +88,12 @@ function setupPdfjsError(err: Error) {
 
 describe('pdfSplitter', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let originalDocument: any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let originalOffscreenCanvas: any
 
   beforeEach(() => {
     vi.clearAllMocks()
 
     // Save originals
-    originalDocument = globalThis.document
     originalOffscreenCanvas = (globalThis as Record<string, unknown>).OffscreenCanvas
 
     // Force use of the document.createElement('canvas') path by removing
@@ -104,17 +101,14 @@ describe('pdfSplitter', () => {
     ;(globalThis as Record<string, unknown>).OffscreenCanvas = undefined
 
     // Mock document.createElement for canvas
-    globalThis.document = {
-      ...globalThis.document,
-      createElement: vi.fn().mockImplementation((tag: string) => {
-        if (tag === 'canvas') return createMockCanvas()
-        return originalDocument.createElement(tag)
-      }),
-    } as unknown as Document
+    const createElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
+      if (tag === 'canvas') return createMockCanvas()
+      return createElement(tag)
+    }) as typeof document.createElement)
   })
 
   afterEach(() => {
-    globalThis.document = originalDocument
     ;(globalThis as Record<string, unknown>).OffscreenCanvas = originalOffscreenCanvas
     vi.restoreAllMocks()
   })

@@ -2,7 +2,7 @@
 
 ## Description
 
-`odi-frontend` is the web UI for [ODI](https://github.com/denysvitali/odi), a privacy-aware tool that scans, OCR-processes, and indexes paper documents. It lets you search and browse digitized documents through the ODI backend's REST API.
+`odi-frontend` is the web UI (React + [Mantine](https://mantine.dev)) for [ODI](https://github.com/denysvitali/odi), a privacy-aware tool that scans, OCR-processes, and indexes paper documents. It lets you search and browse digitized documents through the ODI backend's REST API.
 
 ![ODI Frontend](https://github.com/denysvitali/odi/raw/main/docs/odi-frontend.jpg)
 
@@ -10,7 +10,7 @@
 
 - The ODI backend (`go run . serve` from the repo root) must be running and reachable.
 - [pnpm](https://pnpm.io/) for package management.
-- Node 20+.
+- Node 24+.
 
 ## Running
 

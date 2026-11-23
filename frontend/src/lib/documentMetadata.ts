@@ -24,14 +24,13 @@ const COMPANY_STOP_PREFIXES = [
   'cordiali',
   'ciao',
   'p.s',
-  'grü',
-  'p\.s\.'
+  'grü'
 ]
 
 function normalizeLine(line: string): string {
   return line
     .replace(/\s+/g, ' ')
-    .replace(/^[\"'`]+|[\"'`,;:.]+$/g, '')
+    .replace(/^["'`]+|["'`,;:.]+$/g, '')
     .trim()
 }
 
@@ -57,11 +56,21 @@ function allUppercaseWords(line: string): boolean {
 
 function hasAnyCompanyKeyword(line: string): boolean {
   const normalized = line.toLowerCase()
-  return COMPANY_KEYWORDS.some((keyword) => normalized.includes(` ${keyword} `) || normalized.endsWith(` ${keyword}`) || normalized.startsWith(`${keyword} `))
+  return COMPANY_KEYWORDS.some(
+    (keyword) =>
+      normalized.includes(` ${keyword} `) ||
+      normalized.endsWith(` ${keyword}`) ||
+      normalized.startsWith(`${keyword} `)
+  )
 }
 
 function isAddressOrContactLine(line: string): boolean {
-  if (/[0-9]+/.test(line) && /(strasse|str\. |str\.|str |avenue|street|road|via|rue|platz|casella|zip|tel|telefon|phone|fax|www\.|http|\S+@\S+)/i.test(line)) {
+  if (
+    /[0-9]+/.test(line) &&
+    /(strasse|str\. |str\.|str |avenue|street|road|via|rue|platz|casella|zip|tel|telefon|phone|fax|www\.|http|\S+@\S+)/i.test(
+      line
+    )
+  ) {
     return true
   }
   return /\d{5}|\d{4,}/.test(line)
@@ -69,14 +78,22 @@ function isAddressOrContactLine(line: string): boolean {
 
 function isGreetingOrLabel(line: string): boolean {
   const lowered = line.toLowerCase()
-  return COMPANY_STOP_PREFIXES.some((prefix) => lowered.startsWith(prefix)) || /^(to|from|betreff|subject|date|datum):/i.test(lowered)
+  return (
+    COMPANY_STOP_PREFIXES.some((prefix) => lowered.startsWith(prefix)) ||
+    /^(to|from|betreff|subject|date|datum):/i.test(lowered)
+  )
 }
 
 export function extractCompanyFromText(text: string): string {
   const lines = splitTextLines(text)
 
   for (const line of lines.slice(0, MAX_LINES)) {
-    if (!hasWords(line) || isGreetingOrLabel(line) || isAddressOrContactLine(line) || line.length > 60) {
+    if (
+      !hasWords(line) ||
+      isGreetingOrLabel(line) ||
+      isAddressOrContactLine(line) ||
+      line.length > 60
+    ) {
       continue
     }
 
@@ -90,7 +107,12 @@ export function extractCompanyFromText(text: string): string {
     if (words.length < 3 || words.length > 7) {
       continue
     }
-    if (line.length > 60 || isGreetingOrLabel(line) || isAddressOrContactLine(line) || !allUppercaseWords(line)) {
+    if (
+      line.length > 60 ||
+      isGreetingOrLabel(line) ||
+      isAddressOrContactLine(line) ||
+      !allUppercaseWords(line)
+    ) {
       continue
     }
     return line

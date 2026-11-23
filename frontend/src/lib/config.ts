@@ -46,7 +46,9 @@ export function getSettings(): Settings {
   if (!isValidSettings(value)) {
     // Fail loud — a bad config could otherwise let `javascript:` / `data:` URLs
     // through. Refusing to operate is safer than falling back silently.
-    throw new ConfigError('Settings not loaded or invalid: apiUrl/opensearchUrl must be http(s) URLs')
+    throw new ConfigError(
+      'Settings not loaded or invalid: apiUrl/opensearchUrl must be http(s) URLs'
+    )
   }
   return value
 }

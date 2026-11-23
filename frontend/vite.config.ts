@@ -1,21 +1,13 @@
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   base: process.env.UI_BASE_PATH || '/',
-  plugins: [vue(), tailwindcss()],
+  plugins: [react()],
+  // React + Mantine form one ~600 kB vendor chunk; pdf.js loads lazily with the upload page.
+  build: { chunkSizeWarningLimit: 800 },
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@components': fileURLToPath(new URL('./src/components', import.meta.url)),
-      '@composables': fileURLToPath(new URL('./src/composables', import.meta.url)),
-      '@stores': fileURLToPath(new URL('./src/stores', import.meta.url)),
-      '@lib': fileURLToPath(new URL('./src/lib', import.meta.url)),
-      '@types': fileURLToPath(new URL('./src/types', import.meta.url)),
-      '@assets': fileURLToPath(new URL('./src/assets', import.meta.url))
-    }
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) }
   }
 })

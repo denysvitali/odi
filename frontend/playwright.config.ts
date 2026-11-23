@@ -10,7 +10,8 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     browserName: 'chromium',
     reducedMotion: 'reduce',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    actionTimeout: 5000
   },
   projects: [
     { name: 'desktop', use: { viewport: { width: 1280, height: 900 } } },

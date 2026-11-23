@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Layout
 
-Monorepo with a single Go module (`github.com/denysvitali/odi`) and a Vue 3 frontend, unified through `Makefile` targets.
+Monorepo with a single Go module (`github.com/denysvitali/odi`) and a React frontend, unified through `Makefile` targets.
 
 - `main.go` — Go CLI entry point (Cobra), binary name `odi`
 - `internal/cli/` — CLI command handlers (serve, index, pdf, ingest, zefix-import, zefix-find, etc.)
 - `internal/server/` — Gin REST API
 - `pkg/` — Shared Go packages (indexer, ingestor, storage, ocrclient, models, crypt, zefix, etc.)
 - `zefix-tools/` — Zefix Swiss company register package (`pkg/zefix/`) and legacy standalone CLIs
-- `frontend/` — Vue 3 + TypeScript SPA built with Vite. See `frontend/CLAUDE.md`.
+- `frontend/` — React 19 + Mantine + TypeScript SPA built with Vite. See `frontend/CLAUDE.md`.
 
 The Helm chart lives in a separate repository.
 
@@ -62,7 +62,7 @@ Scanner (AirScan) / File Upload ──► pkg/ingestor / internal/server ──�
                                                                               ├──► pkg/ocrclient ──► OCR server (remote)
                                                                               └──► pkg/storage    ──► B2 (encrypted) or local FS
                                                                                                        │
-Vue 3 SPA (frontend/) ──► internal/server (Gin REST) ◄────────────────────────── OpenSearch
+React SPA (frontend/) ──► internal/server (Gin REST) ◄────────────────────────── OpenSearch
                                         │
                                         └──► pkg/zefix (PostgreSQL from zefix-tools import)
 ```

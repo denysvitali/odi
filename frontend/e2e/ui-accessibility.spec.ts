@@ -59,11 +59,13 @@ test('mobile search filters trap focus, apply changes, dismiss with Escape and r
   const dialog = page.getByRole('dialog', { name: 'Search filters' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('From', { exact: true })).toBeVisible()
-  await dialog.getByLabel('Sample company', { exact: false }).check()
+  // Filter state lives in the URL; router navigations commit in a transition.
+  await dialog.getByLabel('Sample company', { exact: false }).click()
+  await expect(dialog.getByLabel('Sample company', { exact: false })).toBeChecked()
   await expect.poll(() => calls.at(-1)?.companies).toEqual(['Sample company'])
-  await dialog.getByLabel('Barcode presence').selectOption('false')
+  await dialog.getByText('Without', { exact: true }).click()
   await expect.poll(() => calls.at(-1)?.hasBarcode).toBe(false)
-  await dialog.getByRole('button', { name: 'Close', exact: true }).focus()
+  await dialog.getByRole('button').first().focus()
   await page.keyboard.press('Tab')
   expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
   await page.keyboard.press('Escape')
@@ -90,7 +92,10 @@ test('keyboard help traps focus and dismisses without leaving modal state', asyn
   await page.goto('/')
   if (info.project.name === 'mobile') {
     await page.getByRole('button', { name: 'Open navigation' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Keyboard shortcuts' }).click()
+    await page
+      .getByRole('navigation', { name: 'Primary' })
+      .getByRole('button', { name: 'Keyboard shortcuts' })
+      .click()
   } else await page.getByRole('button', { name: /^Keyboard shortcuts/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Keyboard Shortcuts' })
   await expect(dialog).toBeVisible()

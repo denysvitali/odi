@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { LocationQuery } from 'vue-router'
-import { archiveQuery, parseArchiveQuery, hasArchiveSearch } from '../archiveSearch'
+import { archiveQuery, countFilters, hasArchiveSearch, parseArchiveQuery } from '../archiveSearch'
 
 describe('archive search links', () => {
   it('round trips every filter, including false and filter-only queries', () => {
@@ -13,33 +12,33 @@ describe('archive search links', () => {
       hasBarcode: false,
       titleFilter: 'Invoice'
     }
-    expect(parseArchiveQuery(archiveQuery('', filters) as LocationQuery)).toEqual({
-      term: '',
-      filters
-    })
+    expect(parseArchiveQuery(archiveQuery('', filters))).toEqual({ term: '', filters })
     expect(hasArchiveSearch('', { docTypes: ['invoice'] })).toBe(true)
     expect(hasArchiveSearch('', { hasBarcode: false })).toBe(true)
     expect(hasArchiveSearch('  ', {})).toBe(false)
   })
+
   it('preserves company names and tags containing commas', () => {
     const filters = {
       companies: ['Sample, Inc.', 'Another company'],
       tags: ['[archived]', 'one,two']
     }
-    expect(parseArchiveQuery(archiveQuery('', filters) as LocationQuery).filters).toEqual(filters)
-    expect(parseArchiveQuery({ companies: '[malformed' }).filters).toEqual({})
+    expect(parseArchiveQuery(archiveQuery('', filters)).filters).toEqual(filters)
+    expect(parseArchiveQuery(new URLSearchParams({ companies: '[malformed' })).filters).toEqual({})
   })
+
   it('ignores malformed and unrelated query values', () => {
-    expect(
-      parseArchiveQuery({
-        q: ['one', 'two'],
-        docTypes: ['', 'invoice'],
-        hasBarcode: 'invalid',
-        token: 'synthetic'
-      })
-    ).toEqual({ term: '', filters: {} })
-    expect(archiveQuery('  synthetic  ', { companies: [], titleFilter: ' ' })).toEqual({
-      q: 'synthetic'
-    })
+    const params = new URLSearchParams('q=one&q=two&docTypes=&hasBarcode=invalid&token=synthetic')
+    expect(parseArchiveQuery(params)).toEqual({ term: '', filters: {} })
+    expect(archiveQuery('  synthetic  ', { companies: [], titleFilter: ' ' }).toString()).toBe(
+      'q=synthetic'
+    )
+  })
+
+  it('counts active filters', () => {
+    expect(countFilters({ companies: ['a', 'b'], hasBarcode: false, dateFrom: '2026-01-01' })).toBe(
+      4
+    )
+    expect(countFilters({})).toBe(0)
   })
 })

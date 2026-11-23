@@ -173,9 +173,6 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   throw new ApiError(lastError?.message || 'Network error', 0, 'NETWORK_ERROR')
 }
 
-const detailsCache = new Map<string, DocumentDetails>()
-const detailsInflight = new Map<string, Promise<DocumentDetails>>()
-
 export const api = {
   listDocuments(
     params: { size?: number; scrollId?: string; dateFrom?: string; dateTo?: string } = {}
@@ -237,33 +234,9 @@ export const api = {
     })
   },
 
-  async getDocumentDetails(id: string, { skipCache = false } = {}): Promise<DocumentDetails> {
-    if (!skipCache && detailsCache.has(id)) return detailsCache.get(id)!
-    const existing = detailsInflight.get(id)
-    if (existing) return existing
-    // On error we eagerly drop the inflight entry *before* re-throwing so the
-    // next caller can issue a fresh fetch instead of awaiting the rejected
-    // promise (which would otherwise be cached forever via the Map).
-    const p = request<DocumentDetails>(`/documents/${encodeURIComponent(id)}`)
-      .then((d) => {
-        detailsCache.set(id, d)
-        return d
-      })
-      .catch((err) => {
-        detailsInflight.delete(id)
-        throw err
-      })
-      .finally(() => detailsInflight.delete(id))
-    detailsInflight.set(id, p)
-    return p
-  },
-
-  invalidateDocument(id: string): void {
-    detailsCache.delete(id)
-  },
-
-  clearCaches(): void {
-    detailsCache.clear()
+  // Caching/deduplication is React Query's job (see hooks/queries.ts).
+  getDocumentDetails(id: string): Promise<DocumentDetails> {
+    return request(`/documents/${encodeURIComponent(id)}`)
   },
 
   getThumbnail(id: string, signal?: AbortSignal): Promise<Blob> {

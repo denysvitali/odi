@@ -62,7 +62,7 @@ jobs:
       - name: Run govulncheck
         run: govulncheck ./...
 
-  # ── Frontend (Vue 3 + pnpm) ─────────────────────────────────────────────────
+  # ── Frontend (React + pnpm) ────────────────────────────────────────────────
   frontend:
     name: Frontend — lint, test, build
     runs-on: ubuntu-latest

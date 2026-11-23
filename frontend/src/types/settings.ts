@@ -1,6 +1,6 @@
 interface Settings {
-    apiUrl: string;
-    opensearchUrl: string;
+  apiUrl: string
+  opensearchUrl: string
 }
 
-export type { Settings };
+export type { Settings }

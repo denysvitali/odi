@@ -1,10 +1,12 @@
 import { logger } from '@/lib/logger'
 
 export const STORAGE_KEYS = {
-  THEME: 'odi-theme',
+  COLOR_SCHEME: 'odi-color-scheme',
   RECENT_SEARCHES: 'odi-recent-searches',
   FAVORITES: 'odi-favorites',
   TAGS: 'odi-tags',
+  SAVED_SEARCHES: 'odi-saved-searches',
+  DOCUMENT_VIEW: 'odi-document-view',
   LOCALE: 'odi-locale',
   API_TOKEN: 'odi.apiToken'
 } as const
